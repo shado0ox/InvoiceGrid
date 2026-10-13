@@ -229,7 +229,7 @@ export const translations: Record<Language, Translations> = {
     batchBadge: 'استخراج دفعات ضخمة (حتى 200+ فاتورة مع تقسيم ذكي)',
     uploadLimitsBadge: 'الحد الموصى به: 100-200 فاتورة / دفعة • أقصى حجم للملف: 6 MB',
     queueTitle: 'قائمة معالجة الملفات',
-    processingAi: 'جاري استخراج البيانات بالذكاء الاصطناعي...',
+    processingAi: 'جاري قراءة QR والنص، ثم Gemini عند الحاجة...',
     remove: 'إزالة',
 
     searchPlaceholder: 'بحث في اسم المورد، رقم الفاتورة، الرقم الضريبي، البيان...',
@@ -374,7 +374,7 @@ export const translations: Record<Language, Translations> = {
     batchBadge: 'Large Batches (up to 200+ invoices with smart pacing)',
     uploadLimitsBadge: 'Recommended: 100-200 invoices / batch • Max file: 6 MB',
     queueTitle: 'File Processing Queue',
-    processingAi: 'Extracting data with AI OCR...',
+    processingAi: 'Reading QR and text, then Gemini if needed...',
     remove: 'Remove',
 
     searchPlaceholder: 'Search by seller name, invoice number, tax number, details...',

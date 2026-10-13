@@ -78,8 +78,8 @@ export const InvoiceTable: React.FC<InvoiceTableProps> = ({
     const existing = invoices.find((i) => i.id === editingId);
     if (!existing) return;
 
-    const amountBefore = Number(editFormData.amountBeforeTax) || 0;
-    const taxVal = Number(editFormData.tax) || 0;
+    const amountBefore = Number(editFormData.amountBeforeTax);
+    const taxVal = Number(editFormData.tax);
     const lastAmt =
       editFormData.lastAmount !== undefined
         ? Number(editFormData.lastAmount)
@@ -345,7 +345,7 @@ export const InvoiceTable: React.FC<InvoiceTableProps> = ({
                         <input
                           type="number"
                           step="0.01"
-                          value={editFormData.amountBeforeTax ?? 0}
+                          value={Number.isFinite(editFormData.amountBeforeTax) ? editFormData.amountBeforeTax : ''}
                           onChange={(e) => {
                             const val = parseFloat(e.target.value) || 0;
                             const currentTax = Number(editFormData.tax) || 0;
@@ -366,10 +366,10 @@ export const InvoiceTable: React.FC<InvoiceTableProps> = ({
                         <input
                           type="number"
                           step="0.01"
-                          value={editFormData.tax ?? 0}
+                          value={Number.isFinite(editFormData.tax) ? editFormData.tax : ''}
                           onChange={(e) => {
                             const val = parseFloat(e.target.value) || 0;
-                            const amountBefore = Number(editFormData.amountBeforeTax) || 0;
+                            const amountBefore = Number(editFormData.amountBeforeTax);
                             setEditFormData({
                               ...editFormData,
                               tax: val,
@@ -387,7 +387,7 @@ export const InvoiceTable: React.FC<InvoiceTableProps> = ({
                         <input
                           type="number"
                           step="0.01"
-                          value={editFormData.lastAmount ?? 0}
+                          value={Number.isFinite(editFormData.lastAmount) ? editFormData.lastAmount : ''}
                           onChange={(e) =>
                             setEditFormData({ ...editFormData, lastAmount: parseFloat(e.target.value) || 0 })
                           }
@@ -441,7 +441,8 @@ export const InvoiceTable: React.FC<InvoiceTableProps> = ({
                     {/* C: اسم المورد (The seller's name) */}
                     <td className="px-4 py-3 font-medium text-ink border-l border-line">
                       <div className="flex items-center gap-2">
-                        <span>{inv.sellerName || '—'}</span>
+                        <span>{inv.sellerName || (inv.extractionSource === 'MANUAL' ? (language === 'ar' ? 'لم تُقرأ — أكمل يدويًا' : 'Unreadable — complete manually') : '—')}</span>
+                        {inv.extractionSource && <button type="button" onClick={() => onPreviewInvoice(inv)} className={`text-[10px] px-2 py-1 rounded whitespace-nowrap ${inv.extractionSource === 'MANUAL' && needsReview(inv) ? 'bg-amber-50 text-amber-800' : 'bg-canvas text-muted'}`}>{inv.extractionSource === 'MANUAL' ? (language === 'ar' ? (needsReview(inv) ? 'إكمال يدوي' : 'إدخال يدوي') : (needsReview(inv) ? 'Complete manually' : 'Manual entry')) : inv.extractionSource === 'PDF_TEXT' ? (language === 'ar' ? 'نص PDF' : 'PDF text') : inv.extractionSource === 'GEMINI' ? 'Gemini' : 'QR'}{inv.filePageNumber ? ` · ${inv.filePageNumber}` : ''}</button>}
                         {inv.fileName && (
                           <span
                             className="text-[10px] text-muted bg-canvas px-1.5 py-0.5 rounded truncate max-w-[100px]"
@@ -478,30 +479,21 @@ export const InvoiceTable: React.FC<InvoiceTableProps> = ({
                     <td className={`px-3 py-3 font-mono text-amber-700/90 font-medium border-l border-line whitespace-nowrap ${
                       language === 'ar' ? 'text-left' : 'text-right'
                     }`}>
-                      {(Number(inv.amountBeforeTax) || 0).toLocaleString('en-US', {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2,
-                      })}
+                      {Number.isFinite(inv.amountBeforeTax) ? inv.amountBeforeTax.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'}
                     </td>
 
                     {/* H: الضريبه (tax) */}
                     <td className={`px-3 py-3 font-mono text-violet-700 font-medium border-l border-line whitespace-nowrap ${
                       language === 'ar' ? 'text-left' : 'text-right'
                     }`}>
-                      {(Number(inv.tax) || 0).toLocaleString('en-US', {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2,
-                      })}
+                      {Number.isFinite(inv.tax) ? inv.tax.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'}
                     </td>
 
                     {/* I: المبلغ بعد الضريبه (last amount) */}
                     <td className={`px-3 py-3 font-mono text-emerald-700 font-bold border-l border-line whitespace-nowrap ${
                       language === 'ar' ? 'text-left' : 'text-right'
                     }`}>
-                      {(Number(inv.lastAmount) || 0).toLocaleString('en-US', {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2,
-                      })}
+                      {Number.isFinite(inv.lastAmount) ? inv.lastAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'}
                       <span className="block text-[10px] text-muted font-normal">{inv.currency || 'UNKNOWN'}</span>
                     </td>
 
@@ -520,7 +512,7 @@ export const InvoiceTable: React.FC<InvoiceTableProps> = ({
                         )}
                         <button
                           type="button"
-                          onClick={() => startInlineEdit(inv)}
+                          onClick={() => inv.extractionSource === 'MANUAL' && inv.filePreviewUrl ? onPreviewInvoice(inv) : startInlineEdit(inv)}
                           className="p-1.5 rounded-lg text-muted hover:text-amber-700 hover:bg-canvas transition"
                           title={t.editRow}
                         >
@@ -542,7 +534,7 @@ export const InvoiceTable: React.FC<InvoiceTableProps> = ({
             </tbody>
 
             {/* Bottom Totals Footer Row */}
-            {new Set(filteredInvoices.map(row => (row.currency || 'UNKNOWN').toUpperCase())).size <= 1 && <tfoot>
+            {new Set(filteredInvoices.map(row => (row.currency || 'UNKNOWN').toUpperCase())).size <= 1 && filteredInvoices.some(row => Number.isFinite(row.lastAmount)) && <tfoot>
               <tr className="bg-surface font-bold border-t-2 border-line text-ink">
                 <td colSpan={6} className={`px-4 py-3 border-l border-line ${language === 'ar' ? 'text-right' : 'text-left'}`}>
                   <div className="flex items-center justify-between">

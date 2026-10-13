@@ -83,7 +83,7 @@ export const UploadZone: React.FC<UploadZoneProps> = ({
 
   return (
     <div className="mb-6 space-y-4">
-      <p className="text-xs text-muted mb-2">{t.dir === 'rtl' ? 'PDF · JPG · PNG · WebP | حتى 6 MB للملف. تُرسل مباشرة إلى Gemini باستخدام مفتاحك، وليس إلى سيرفر الموقع.' : 'PDF · JPG · PNG · WebP | Up to 6 MB per file. Documents go directly to Gemini using your key, not to this website’s server.'}</p>
+      <p className="text-xs text-muted mb-2">{t.dir === 'rtl' ? 'PDF · JPG · PNG · WebP | حتى 6 MB للملف. QR ونص PDF محليًا أولًا؛ Gemini فقط عند الحاجة وبمفتاحك.' : 'PDF · JPG · PNG · WebP | Up to 6 MB per file. QR and PDF text are read locally first; Gemini is used only when needed with your key.'}</p>
       {/* Drop Zone Box */}
       <div
         onDragOver={handleDragOver}

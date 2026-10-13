@@ -38,9 +38,9 @@ function createInvoiceWorksheet(invoices: InvoiceRow[], XLSX: typeof XLSXTypes) 
     inv.taxNumber || '',
     inv.invoiceNumber || '',
     inv.details || '',
-    Number(inv.amountBeforeTax) || 0,
-    Number(inv.tax) || 0,
-    Number(inv.lastAmount) || 0,
+    Number.isFinite(inv.amountBeforeTax) ? inv.amountBeforeTax : '',
+    Number.isFinite(inv.tax) ? inv.tax : '',
+    Number.isFinite(inv.lastAmount) ? inv.lastAmount : '',
   ]);
 
   // Totals calculations
@@ -56,9 +56,9 @@ function createInvoiceWorksheet(invoices: InvoiceRow[], XLSX: typeof XLSXTypes) 
     '',
     '',
     `عدد الفواتير: ${invoices.length}`,
-    Number(totalBeforeTax.toFixed(2)),
-    Number(totalTax.toFixed(2)),
-    Number(totalLastAmount.toFixed(2)),
+    invoices.some(inv => Number.isFinite(inv.amountBeforeTax)) ? Number(totalBeforeTax.toFixed(2)) : '',
+    invoices.some(inv => Number.isFinite(inv.tax)) ? Number(totalTax.toFixed(2)) : '',
+    invoices.some(inv => Number.isFinite(inv.lastAmount)) ? Number(totalLastAmount.toFixed(2)) : '',
   ];
 
   // Total summary row in English
@@ -69,9 +69,9 @@ function createInvoiceWorksheet(invoices: InvoiceRow[], XLSX: typeof XLSXTypes) 
     '',
     '',
     `Total Invoices: ${invoices.length}`,
-    Number(totalBeforeTax.toFixed(2)),
-    Number(totalTax.toFixed(2)),
-    Number(totalLastAmount.toFixed(2)),
+    invoices.some(inv => Number.isFinite(inv.amountBeforeTax)) ? Number(totalBeforeTax.toFixed(2)) : '',
+    invoices.some(inv => Number.isFinite(inv.tax)) ? Number(totalTax.toFixed(2)) : '',
+    invoices.some(inv => Number.isFinite(inv.lastAmount)) ? Number(totalLastAmount.toFixed(2)) : '',
   ];
 
   const fullSheetData = [
@@ -148,9 +148,9 @@ export function exportInvoicesToCSV(invoices: InvoiceRow[], filename = 'InvoiceG
     safeCSVText(inv.taxNumber || ''),
     safeCSVText(inv.invoiceNumber || ''),
     safeCSVText(inv.details || ''),
-    (Number(inv.amountBeforeTax) || 0).toFixed(2),
-    (Number(inv.tax) || 0).toFixed(2),
-    (Number(inv.lastAmount) || 0).toFixed(2),
+    (Number.isFinite(inv.amountBeforeTax) ? inv.amountBeforeTax.toFixed(2) : ''),
+    (Number.isFinite(inv.tax) ? inv.tax.toFixed(2) : ''),
+    (Number.isFinite(inv.lastAmount) ? inv.lastAmount.toFixed(2) : ''),
   ]);
 
   // Add UTF-8 BOM so Excel opens Arabic correctly
@@ -183,9 +183,9 @@ export async function copyInvoicesToClipboard(invoices: InvoiceRow[]): Promise<b
       const text = (value || '').replace(/[\t\r\n]/g, ' ');
       return /^[\s]*[=+@-]/.test(text) ? `'${text}` : text;
     }),
-    (Number(inv.amountBeforeTax) || 0).toFixed(2),
-    (Number(inv.tax) || 0).toFixed(2),
-    (Number(inv.lastAmount) || 0).toFixed(2),
+    (Number.isFinite(inv.amountBeforeTax) ? inv.amountBeforeTax.toFixed(2) : ''),
+    (Number.isFinite(inv.tax) ? inv.tax.toFixed(2) : ''),
+    (Number.isFinite(inv.lastAmount) ? inv.lastAmount.toFixed(2) : ''),
   ].join('\t'));
 
   const textToCopy = [...headers, ...rows].join('\n');

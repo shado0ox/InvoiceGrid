@@ -29,3 +29,16 @@ test('provider contract returns numeric extracted rows without saving document d
     assert.equal(response.headers.get('cache-control'), 'no-store');
   } finally { globalThis.fetch = originalFetch; }
 });
+
+test('provider preserves unreadable monetary fields as null instead of inventing zeros', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: JSON.stringify({ invoices: [{ sellerName: 'Partial', amountBeforeTax: null, tax: null, lastAmount: 115 }] }) }] } }] }), { headers: { 'Content-Type': 'application/json' } });
+  try {
+    const response = await extractInvoice({ mimeType: 'image/png', fileBase64: 'AAAA' }, { apiKey: 'test-only-key' });
+    const data: any = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(data.invoices[0].amountBeforeTax, null);
+    assert.equal(data.invoices[0].tax, null);
+    assert.equal(data.invoices[0].lastAmount, 115);
+  } finally { globalThis.fetch = originalFetch; }
+});
