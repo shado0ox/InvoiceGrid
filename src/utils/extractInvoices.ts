@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type } from '@google/genai';
-export interface ExtractEnv { GEMINI_API_KEY?: string; GEMINI_MODEL?: string; }
+export interface UserCredentials { apiKey?: string; model?: string; }
 export function json(data: unknown, status = 200) {
   return new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' } });
 }
@@ -25,16 +25,16 @@ export const promptText = `
 `;
 
 
-export async function extractInvoice(body: any, env: ExtractEnv): Promise<Response> {
+export async function extractInvoice(body: any, credentials: UserCredentials, signal?: AbortSignal): Promise<Response> {
   const { fileBase64, mimeType, fileName } = body || {};
   if (typeof fileBase64 !== 'string' || fileBase64.length > 8388608 || !/^[A-Za-z0-9+/]+={0,2}$/.test(fileBase64) || fileBase64.length % 4 !== 0 || !['application/pdf', 'image/jpeg', 'image/png', 'image/webp'].includes(mimeType)) {
     return json({ error: 'ملف غير صالح. الأنواع المتاحة PDF / JPG / PNG / WebP حتى 6 MB.' }, 400);
   }
-  if (!env.GEMINI_API_KEY) return json({ error: 'خدمة قراءة الفواتير لم تُجهز بعد.' }, 503);
-  const ai = new GoogleGenAI({ apiKey: env.GEMINI_API_KEY, httpOptions: { timeout: 90000 } });
+  if (!credentials.apiKey) return json({ error: 'أضف مفتاح Gemini الخاص بك أولاً.' }, 503);
+  const ai = new GoogleGenAI({ apiKey: credentials.apiKey, httpOptions: { timeout: 90000 } });
   try {
       const response = await ai.models.generateContent({
-        model: env.GEMINI_MODEL || 'gemini-3.8-flash',
+        model: credentials.model || 'gemini-3.8-flash',
         contents: {
           parts: [
             {
@@ -49,6 +49,7 @@ export async function extractInvoice(body: any, env: ExtractEnv): Promise<Respon
           ],
         },
         config: {
+          abortSignal: signal,
           responseMimeType: 'application/json',
           responseSchema: {
             type: Type.OBJECT,
@@ -130,7 +131,10 @@ export async function extractInvoice(body: any, env: ExtractEnv): Promise<Respon
     });
     return json({ success: true, fileName: typeof fileName === 'string' ? fileName.slice(0, 255) : 'file', invoices });
   } catch (error: any) {
-    const quota = error?.status === 429 || error?.statusCode === 429;
+    if (signal?.aborted) throw error;
+    const status = error?.status || error?.statusCode;
+    if (status === 400 || status === 401 || status === 403 || status === 404) return json({ error: 'راجع مفتاحك وصلاحياته واسم النموذج في Google AI Studio.', credentialError: true }, 401);
+    const quota = status === 429;
     return json({ error: quota ? 'تم الوصول إلى حد طلبات المزوّد. حاول لاحقاً.' : 'تعذرت قراءة الفاتورة. راجع الملف وإعداد النموذج ثم حاول مرة أخرى.', isQuotaExceeded: quota }, quota ? 429 : 502);
   }
 }

@@ -51,6 +51,8 @@ export default function App() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingInvoice, setEditingInvoice] = useState<InvoiceRow | null>(null);
   const [previewInvoice, setPreviewInvoice] = useState<InvoiceRow | null>(null);
+  const [apiKey, setApiKey] = useState('');
+  const [model, setModel] = useState('gemini-3.8-flash');
   const [isApiKeyGuideOpen, setIsApiKeyGuideOpen] = useState(false);
   const [toast, setToast] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null);
 
@@ -140,6 +142,12 @@ export default function App() {
   const handleFilesSelected = useCallback(
     async (files: File[]) => {
       if (!files || files.length === 0 || batchBusy.current) return;
+      if (!apiKey.trim()) {
+        setIsApiKeyGuideOpen(true);
+        showToast('info', language === 'ar' ? 'أضف مفتاح Gemini الخاص بك لبدء القراءة.' : 'Add your Gemini key to start extraction.');
+        return;
+      }
+      const credentials = { apiKey: apiKey.trim(), model: model.trim() };
       if (files.some(file => file.size > 6 * 1024 * 1024 || !['application/pdf', 'image/jpeg', 'image/png', 'image/webp'].includes(file.type))) {
         showToast('error', language === 'ar' ? 'اختر PDF أو JPG أو PNG أو WebP؛ الحد الأقصى 6 MB لكل ملف.' : 'Choose PDF, JPG, PNG or WebP, up to 6 MB per file.');
         return;
@@ -214,18 +222,8 @@ export default function App() {
 
             if (isCancelledRef.current) break;
             requestController.current = new AbortController();
-            const response = await fetch('/api/extract-invoice', {
-              signal: requestController.current.signal,
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                fileBase64: base64Data,
-                mimeType: mimeType,
-                fileName: item.name,
-              }),
-            });
+            const { extractInvoice } = await import('./utils/extractInvoices');
+            const response = await extractInvoice({ fileBase64: base64Data, mimeType, fileName: item.name }, credentials, requestController.current.signal);
 
             const data = await response.json();
             if (isCancelledRef.current) break;
@@ -250,6 +248,11 @@ export default function App() {
 
             if (response.status === 401 || response.status === 403 || response.status === 503) {
               attempt = maxAttempts;
+              isCancelledRef.current = true;
+              setIsApiKeyGuideOpen(true);
+              showToast('error', data.error);
+              setFileQueue(prev => prev.map(q => q.id === item.id ? { ...q, status: 'error', errorMessage: data.error } : q));
+              break;
             }
             if (!response.ok || !data.success) {
               throw new Error(data.error || 'فشلت معالجة الفاتورة.');
@@ -342,7 +345,7 @@ export default function App() {
         showToast('success', t.batchCompletedCelebration(totalExtractedSoFar));
       }
     },
-    [t, language]
+    [t, language, apiKey, model]
   );
 
   const handlePauseBatch = () => {
@@ -462,6 +465,10 @@ export default function App() {
         </section>
         <p role="status" className="text-xs text-muted border-s-2 border-primary ps-3 py-1">{language === 'ar' ? 'جلسة مؤقتة: لا يوجد أرشيف للفواتير. نزّل ملف Excel قبل إغلاق الصفحة.' : 'Temporary session: no invoice archive. Download your Excel file before closing this page.'}{hasUnexportedRows && <strong className="text-primary ms-2">{language === 'ar' ? 'توجد نتائج لم تُصدّر.' : 'Some results have not been exported.'}</strong>}</p>
 
+        <section className="flex flex-wrap justify-between items-center gap-3 p-4 bg-surface border border-line rounded-xl text-sm">
+          <p className="text-muted">{language === 'ar' ? (apiKey ? 'مفتاحك مضاف لهذه الجلسة فقط. القراءة تُخصم من حسابك.' : 'ابدأ بإضافة مفتاح Gemini الخاص بك. لا حاجة لتسجيل حساب في الموقع.') : (apiKey ? 'Your key is set for this session. Usage is charged to your provider account.' : 'Add your Gemini key to begin. No website account needed.')}</p>
+          <div className="flex gap-3"><button disabled={isProcessing} className="text-primary font-bold" onClick={() => setIsApiKeyGuideOpen(true)}>{language === 'ar' ? (apiKey ? 'إعدادات المفتاح' : 'إضافة مفتاحي') : (apiKey ? 'Key settings' : 'Add my key')}</button>{apiKey && <button disabled={isProcessing} className="text-rose-700" onClick={() => setApiKey('')}>{language === 'ar' ? 'مسح المفتاح' : 'Clear key'}</button>}</div>
+        </section>
         {/* Upload & Drop Zone */}
         <UploadZone
           onFilesSelected={handleFilesSelected}
@@ -535,6 +542,10 @@ export default function App() {
 
       {/* AI Key & Agent Smart Guide Modal */}
       <ApiKeyGuideModal
+        apiKey={apiKey}
+        model={model}
+        isProcessing={isProcessing}
+        onSave={(key, chosenModel) => { setApiKey(key); setModel(chosenModel); setIsApiKeyGuideOpen(false); }}
         isOpen={isApiKeyGuideOpen}
         onClose={() => setIsApiKeyGuideOpen(false)}
         t={t}
