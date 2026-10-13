@@ -1,3 +1,4 @@
+import { describeProviderError } from './providerError';
 import { GoogleGenAI, Type } from '@google/genai';
 export interface UserCredentials { apiKey?: string; model?: string; }
 export function json(data: unknown, status = 200) {
@@ -132,9 +133,14 @@ export async function extractInvoice(body: any, credentials: UserCredentials, si
     return json({ success: true, fileName: typeof fileName === 'string' ? fileName.slice(0, 255) : 'file', invoices });
   } catch (error: any) {
     if (signal?.aborted) throw error;
-    const status = error?.status || error?.statusCode;
-    if (status === 400 || status === 401 || status === 403 || status === 404) return json({ error: 'راجع مفتاحك وصلاحياته واسم النموذج في Google AI Studio.', credentialError: true }, 401);
-    const quota = status === 429;
-    return json({ error: quota ? 'تم الوصول إلى حد طلبات المزوّد. حاول لاحقاً.' : 'تعذرت قراءة الفاتورة. راجع الملف وإعداد النموذج ثم حاول مرة أخرى.', isQuotaExceeded: quota }, quota ? 429 : 502);
+    const problem = describeProviderError(error, credentials.apiKey);
+    const diagnostic = problem.message ? ` (${problem.status}) ${problem.message}` : '';
+    if (problem.status === 401 || problem.status === 403 || problem.invalidKey) {
+      return json({ error: 'راجع مفتاحك وصلاحياته في Google AI Studio.' + diagnostic, credentialError: true, retryable: false }, 401);
+    }
+    if (problem.status === 404) return json({ error: 'النموذج المطلوب غير متاح؛ راجع اسمه في إعدادات المفتاح.' + diagnostic, credentialError: true, retryable: false }, 401);
+    if (problem.status === 400) return json({ error: 'رفض Gemini طلب قراءة هذا الملف.' + diagnostic, retryable: false }, 400);
+    const quota = problem.status === 429;
+    return json({ error: (quota ? 'تم الوصول إلى حد حساب Gemini أو النموذج.' : 'تعذرت قراءة الفاتورة.') + diagnostic, isQuotaExceeded: quota, retryAfterSeconds: problem.retryAfterSeconds }, quota ? 429 : 502);
   }
 }

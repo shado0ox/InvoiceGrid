@@ -232,8 +232,9 @@ export default function App() {
             if (response.status === 429 || data.isQuotaExceeded) {
               console.warn('Minute rate limit reached. Triggering automatic smart cooldown...');
               setIsCooldown(true);
-              // Wait 35 seconds for minute window reset
-              for (let cd = 35; cd > 0; cd--) {
+              // Respect Gemini RetryInfo when supplied; 429 can be request or token quota.
+              const waitSeconds = Math.min(300, Math.max(1, Number(data.retryAfterSeconds) || 60));
+              for (let cd = waitSeconds; cd > 0; cd--) {
                 setCooldownSeconds(cd);
                 setQuota((prev) => ({ ...prev, cooldownSeconds: cd }));
                 await sleep(1000);
@@ -242,7 +243,7 @@ export default function App() {
               setIsCooldown(false);
               setCooldownSeconds(0);
               setQuota((prev) => ({ ...prev, cooldownSeconds: 0 }));
-              if (attempt >= maxAttempts) setFileQueue(prev => prev.map(q => q.id === item.id ? { ...q, status: 'error', errorMessage: language === 'ar' ? 'حد المزوّد؛ حاول لاحقاً.' : 'Provider rate limit; try later.' } : q));
+              if (attempt >= maxAttempts) setFileQueue(prev => prev.map(q => q.id === item.id ? { ...q, status: 'error', errorMessage: data.error || (language === 'ar' ? 'حد المزوّد؛ حاول لاحقاً.' : 'Provider rate limit; try later.') } : q));
               continue; // Retry this file
             }
 
@@ -254,6 +255,7 @@ export default function App() {
               setFileQueue(prev => prev.map(q => q.id === item.id ? { ...q, status: 'error', errorMessage: data.error } : q));
               break;
             }
+            if (data.retryable === false) attempt = maxAttempts;
             if (!response.ok || !data.success) {
               throw new Error(data.error || 'فشلت معالجة الفاتورة.');
             }
