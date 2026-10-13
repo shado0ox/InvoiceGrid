@@ -1,0 +1,6 @@
+{
+  "name": "محول الفواتير إلى إكسيل - OCR & PDF to Excel",
+  "description": "برنامج ذكي لتحويل فواتير PDF وصور الفواتير بالـ OCR إلى ملف إكسيل منظم مع استخراج اسم المورد والرقم الضريبي والمبالغ والضريبة بدقة عالية.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
