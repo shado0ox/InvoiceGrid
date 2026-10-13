@@ -15,6 +15,8 @@ export interface InvoiceRow {
   filePreviewUrl?: string;
   fileMimeType?: string;
   notes?: string;
+  extractionSource?: 'QR' | 'PDF_TEXT' | 'GEMINI' | 'MANUAL';
+  filePageNumber?: number;
 }
 
 export interface FileQueueItem {

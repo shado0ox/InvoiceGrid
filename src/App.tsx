@@ -12,6 +12,7 @@ import { InvoiceRow, FileQueueItem } from './types';
 import { SAMPLE_INVOICES } from './data/sampleInvoices';
 import { translations, Language } from './i18n/translations';
 import { loadQuotaState, recordQuotaRequest, QuotaState } from './utils/quotaManager';
+import { manualInvoice } from './utils/localInvoice';
 import { rowFingerprint } from './utils/session';
 import { CheckCircle2, AlertCircle, Info, Sparkles } from 'lucide-react';
 
@@ -48,6 +49,7 @@ export default function App() {
   }, []);
   const [fileQueue, setFileQueue] = useState<FileQueueItem[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [localProgress, setLocalProgress] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingInvoice, setEditingInvoice] = useState<InvoiceRow | null>(null);
   const [previewInvoice, setPreviewInvoice] = useState<InvoiceRow | null>(null);
@@ -121,234 +123,103 @@ export default function App() {
     }
   };
 
-  // Convert file to base64
-  const readFileAsBase64 = (file: File): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const result = reader.result as string;
-        const base64 = result.includes(',') ? result.split(',')[1] : result;
-        resolve(base64);
-      };
-      reader.onerror = reject;
-      reader.readAsDataURL(file);
-    });
-  };
-
   // Helper sleep function
   const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-  // Batch runner with smart rate limiting, throttling, and auto-cooldown
-  const handleFilesSelected = useCallback(
-    async (files: File[]) => {
-      if (!files || files.length === 0 || batchBusy.current) return;
-      if (!apiKey.trim()) {
-        setIsApiKeyGuideOpen(true);
-        showToast('info', language === 'ar' ? 'أضف مفتاح Gemini الخاص بك لبدء القراءة.' : 'Add your Gemini key to start extraction.');
-        return;
-      }
-      const credentials = { apiKey: apiKey.trim(), model: model.trim() };
-      if (files.some(file => file.size > 6 * 1024 * 1024 || !['application/pdf', 'image/jpeg', 'image/png', 'image/webp'].includes(file.type))) {
-        showToast('error', language === 'ar' ? 'اختر PDF أو JPG أو PNG أو WebP؛ الحد الأقصى 6 MB لكل ملف.' : 'Choose PDF, JPG, PNG or WebP, up to 6 MB per file.');
-        return;
-      }
-      batchBusy.current = true;
-
-      const newQueueItems: FileQueueItem[] = files.map((file) => ({
-        id: `file-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-        file,
-        name: file.name,
-        size: file.size,
-        type: file.type || (file.name.endsWith('.pdf') ? 'application/pdf' : 'image/jpeg'),
-        previewUrl: URL.createObjectURL(file),
-        status: 'pending',
+  // Local QR -> searchable PDF text -> Gemini per unreadable page -> manual row.
+  const handleFilesSelected = useCallback(async (files: File[]) => {
+    if (!files.length || batchBusy.current) return;
+    batchBusy.current = true;
+    const credentials = { apiKey: apiKey.trim(), model: model.trim() };
+    const queue: FileQueueItem[] = files.map(file => ({ id: crypto.randomUUID(), file, name: file.name, size: file.size, type: file.type, previewUrl: URL.createObjectURL(file), status: 'pending' }));
+    queue.forEach(item => previewUrls.current.add(item.previewUrl));
+    setFileQueue(previous => [...previous, ...queue]);
+    setIsProcessing(true); setBatchActive(true); setBatchTotalFiles(queue.length);
+    setBatchTotalChunks(Math.ceil(queue.length / 10)); setBatchCurrentIndex(0); setBatchExtractedCount(0);
+    isCancelledRef.current = false; isPausedRef.current = false; setIsPaused(false);
+    const controller = new AbortController(); requestController.current = controller;
+    let count = 0, manualCount = 0, aiUnavailable = '', aiRequests = 0;
+    const append = (rows: Partial<InvoiceRow>[], item: FileQueueItem, pageNumber?: number) => {
+      const records: InvoiceRow[] = rows.map(row => ({
+        id: crypto.randomUUID(), no: 0, date: row.date || '', sellerName: row.sellerName || '', taxNumber: row.taxNumber || '', invoiceNumber: row.invoiceNumber || '', details: row.details || '',
+        amountBeforeTax: typeof row.amountBeforeTax === 'number' ? row.amountBeforeTax : NaN,
+        tax: typeof row.tax === 'number' ? row.tax : NaN,
+        lastAmount: typeof row.lastAmount === 'number' ? row.lastAmount : NaN,
+        currency: row.currency || 'UNKNOWN', taxRatePercent: row.taxRatePercent ?? (Number.isFinite(row.amountBeforeTax) && row.amountBeforeTax! !== 0 && Number.isFinite(row.tax) ? row.tax! / row.amountBeforeTax! * 100 : 0),
+        notes: row.notes, extractionSource: row.extractionSource, fileName: item.name, filePreviewUrl: item.previewUrl, fileMimeType: item.type, filePageNumber: pageNumber,
       }));
-
-      newQueueItems.forEach(item => previewUrls.current.add(item.previewUrl));
-      setFileQueue((prev) => [...prev, ...newQueueItems]);
-      setIsProcessing(true);
-      isPausedRef.current = false;
-      isCancelledRef.current = false;
-      setIsPaused(false);
-
-      const totalCount = newQueueItems.length;
-      // Group into chunks of 10 for safe minute pacing
-      const CHUNK_SIZE = 10;
-      const totalChunks = Math.ceil(totalCount / CHUNK_SIZE);
-
-      setBatchActive(true);
-      setBatchTotalFiles(totalCount);
-      setBatchCurrentIndex(0);
-      setBatchExtractedCount(0);
-      setBatchTotalChunks(totalChunks);
-      setBatchCurrentChunk(1);
-      setBatchEstSeconds(totalCount * 4); // ~4s per invoice on average
-
-      let totalExtractedSoFar = 0;
-      let processedIndex = 0;
-
-      for (let i = 0; i < newQueueItems.length; i++) {
-        if (isCancelledRef.current) {
-          break;
-        }
-
-        // Wait if user clicked pause
-        while (isPausedRef.current && !isCancelledRef.current) {
-          await sleep(500);
-        }
-
-        if (isCancelledRef.current) break;
-        const item = newQueueItems[i];
-        processedIndex = i + 1;
-        setBatchCurrentIndex(processedIndex);
-        setBatchCurrentChunk(Math.floor(i / CHUNK_SIZE) + 1);
-        setBatchEstSeconds(Math.max(0, (totalCount - processedIndex) * 4));
-
-        // Mark item as processing in queue
-        setFileQueue((prev) =>
-          prev.map((q) => (q.id === item.id ? { ...q, status: 'processing' } : q))
-        );
-
-        let success = false;
-        let attempt = 0;
-        const maxAttempts = 3;
-
-        while (!success && attempt < maxAttempts && !isCancelledRef.current) {
-          attempt++;
-          try {
-            const base64Data = await readFileAsBase64(item.file);
-            const mimeType =
-              item.type || (item.name.endsWith('.pdf') ? 'application/pdf' : 'image/jpeg');
-
-            if (isCancelledRef.current) break;
-            requestController.current = new AbortController();
-            const { extractInvoice } = await import('./utils/extractInvoices');
-            const response = await extractInvoice({ fileBase64: base64Data, mimeType, fileName: item.name }, credentials, requestController.current.signal);
-
-            const data = await response.json();
-            if (isCancelledRef.current) break;
-
-            // Handle 429 Rate Limit Exhaustion gracefully
-            if (response.status === 429 || data.isQuotaExceeded) {
-              console.warn('Minute rate limit reached. Triggering automatic smart cooldown...');
-              setIsCooldown(true);
-              // Respect Gemini RetryInfo when supplied; 429 can be request or token quota.
-              const waitSeconds = Math.min(300, Math.max(1, Number(data.retryAfterSeconds) || 60));
-              for (let cd = waitSeconds; cd > 0; cd--) {
-                setCooldownSeconds(cd);
-                setQuota((prev) => ({ ...prev, cooldownSeconds: cd }));
-                await sleep(1000);
-                if (isCancelledRef.current) break;
+      setInvoices(previous => [...previous, ...records.map((row, index) => ({ ...row, no: previous.length + index + 1 }))]);
+      count += records.length; manualCount += records.filter(row => row.extractionSource === 'MANUAL').length;
+      setBatchExtractedCount(count);
+    };
+    const paused = async () => { while (isPausedRef.current && !controller.signal.aborted) await sleep(200); controller.signal.throwIfAborted(); };
+    try {
+      const { readLocalPages } = await import('./utils/readLocalPages');
+      for (let index = 0; index < queue.length; index++) {
+        await paused();
+        const item = queue[index]; let pageNumber = 1, rowsAdded = 0, failure = '';
+        setBatchCurrentIndex(index + 1); setBatchCurrentChunk(Math.floor(index / 10) + 1); setBatchEstSeconds(0);
+        setFileQueue(previous => previous.map(row => row.id === item.id ? { ...row, status: 'processing' } : row));
+        try {
+          if (item.size > 6 * 1024 * 1024 || !['application/pdf', 'image/png', 'image/jpeg', 'image/webp'].includes(item.type)) throw new Error(language === 'ar' ? 'نوع الملف غير مدعوم أو حجمه أكبر من 6 MB؛ أكمله يدويًا.' : 'Unsupported file or larger than 6 MB; enter manually.');
+          for await (const page of readLocalPages(item.file, controller.signal, (number, total) => {
+            pageNumber = number;
+            setLocalProgress(language === 'ar' ? `${item.name} · صفحة ${number}/${total} · QR ثم قراءة النص` : `${item.name} · page ${number}/${total} · QR then text`);
+          })) {
+            await paused(); pageNumber = page.pageNumber;
+            if (page.rows.length) { append(page.rows, item, pageNumber); rowsAdded += page.rows.length; continue; }
+            let extracted: Partial<InvoiceRow>[] = [];
+            let reason = aiUnavailable || (credentials.apiKey ? '' : (language === 'ar' ? 'لم يُضف مفتاح Gemini، والقراءة المحلية غير مكتملة.' : 'No Gemini key; local reading is incomplete.'));
+            if (credentials.apiKey && !aiUnavailable) {
+              const { extractInvoice } = await import('./utils/extractInvoices');
+              for (let attempt = 1; attempt <= 3; attempt++) {
+                await paused();
+                setLocalProgress(language === 'ar' ? `${item.name} · صفحة ${pageNumber} · محاولة Gemini ${attempt}/3` : `${item.name} · page ${pageNumber} · Gemini attempt ${attempt}/3`);
+                try {
+                  // Pacing applies only to provider calls; QR/text reads have no artificial delay.
+                  if (aiRequests > 0 && attempt === 1) { await sleep(4000); await paused(); }
+                  aiRequests++;
+                  const response = await extractInvoice({ fileBase64: page.imageBase64, mimeType: 'image/jpeg', fileName: item.name }, credentials, controller.signal);
+                  const data = await response.json(); controller.signal.throwIfAborted();
+                  if (response.ok && data.success && Array.isArray(data.invoices) && data.invoices.length) {
+                    extracted = data.invoices.map((row: any) => [row.amountBeforeTax, row.tax, row.lastAmount].every(value => typeof value === 'number' && Number.isFinite(value)) ? ({ ...row, extractionSource: 'GEMINI' }) : manualInvoice({ ...page.partial, ...row, amountBeforeTax: row.amountBeforeTax ?? NaN, tax: row.tax ?? NaN, lastAmount: row.lastAmount ?? NaN }, language === 'ar' ? 'قراءة Gemini جزئية؛ أكمل القيم غير المقروءة.' : 'Partial Gemini result; complete unreadable values.')); setQuota(recordQuotaRequest()); break;
+                  }
+                  reason = data.error || (language === 'ar' ? 'لا توجد بيانات قابلة للقراءة.' : 'No readable invoice data.');
+                  if (data.credentialError || response.status === 503) { aiUnavailable = reason; break; }
+                  if (response.status === 429) {
+                    if (attempt === 3) { aiUnavailable = reason; break; }
+                    setIsCooldown(true);
+                    for (let seconds = Math.min(300, Math.max(1, Number(data.retryAfterSeconds) || 60)); seconds > 0; seconds--) {
+                      controller.signal.throwIfAborted(); setCooldownSeconds(seconds); await sleep(1000);
+                    }
+                    setIsCooldown(false); setCooldownSeconds(0); continue;
+                  }
+                  if (data.retryable === false) break;
+                } catch (error: any) { controller.signal.throwIfAborted(); reason = error.message || 'Read error'; }
+                if (attempt < 3) { await sleep(1500); await paused(); }
               }
-              setIsCooldown(false);
-              setCooldownSeconds(0);
-              setQuota((prev) => ({ ...prev, cooldownSeconds: 0 }));
-              if (attempt >= maxAttempts) setFileQueue(prev => prev.map(q => q.id === item.id ? { ...q, status: 'error', errorMessage: data.error || (language === 'ar' ? 'حد المزوّد؛ حاول لاحقاً.' : 'Provider rate limit; try later.') } : q));
-              continue; // Retry this file
             }
-
-            if (response.status === 401 || response.status === 403 || response.status === 503) {
-              attempt = maxAttempts;
-              isCancelledRef.current = true;
-              setIsApiKeyGuideOpen(true);
-              showToast('error', data.error);
-              setFileQueue(prev => prev.map(q => q.id === item.id ? { ...q, status: 'error', errorMessage: data.error } : q));
-              break;
-            }
-            if (data.retryable === false) attempt = maxAttempts;
-            if (!response.ok || !data.success) {
-              throw new Error(data.error || 'فشلت معالجة الفاتورة.');
-            }
-
-            const extractedList = data.invoices || [];
-            if (extractedList.length === 0) {
-              throw new Error('لم يتم العثور على بيانات في المستند.');
-            }
-
-            // Successfully processed - record quota usage
-            const updatedQuota = recordQuotaRequest();
-            setQuota(updatedQuota);
-
-            // Format extracted rows and immediately append to table in real-time!
-            setInvoices((prev) => {
-              const currentTotalCount = prev.length;
-              const newRows: InvoiceRow[] = extractedList.map((extracted: any, index: number) => ({
-                id: `inv-${Date.now()}-${Math.random().toString(36).substr(2, 7)}-${index}`,
-                no: currentTotalCount + index + 1,
-                date: extracted.date || '',
-                sellerName: extracted.sellerName || '',
-                taxNumber: extracted.taxNumber || '',
-                invoiceNumber: extracted.invoiceNumber || '',
-                details: extracted.details || '',
-                amountBeforeTax: Number(extracted.amountBeforeTax) || 0,
-                tax: Number(extracted.tax) || 0,
-                lastAmount: Number(extracted.lastAmount) || 0,
-                currency: extracted.currency || 'UNKNOWN',
-                taxRatePercent: extracted.taxRatePercent ?? 0,
-                fileName: item.name,
-                filePreviewUrl: item.previewUrl,
-                fileMimeType: item.type,
-                notes: extracted.notes,
-              }));
-
-              return [...prev, ...newRows];
-            });
-
-            totalExtractedSoFar += extractedList.length;
-            setBatchExtractedCount(totalExtractedSoFar);
-
-            // Mark queue item as done
-            setFileQueue((prev) =>
-              prev.map((q) =>
-                q.id === item.id
-                  ? { ...q, status: 'done', extractedCount: extractedList.length }
-                  : q
-              )
-            );
-
-            success = true;
-          } catch (err: any) {
-            if (isCancelledRef.current) break;
-            console.error(`Attempt ${attempt} error for ${item.name}:`, err);
-            if (attempt >= maxAttempts) {
-              setFileQueue((prev) =>
-                prev.map((q) =>
-                  q.id === item.id
-                    ? { ...q, status: 'error', errorMessage: err.message || 'خطأ' }
-                    : q
-                )
-              );
-            } else {
-              // Short delay before retry
-              await sleep(2000);
-            }
+            if (extracted.length) { append(extracted, item, pageNumber); rowsAdded += extracted.length; if (extracted.some(row => row.extractionSource === 'MANUAL')) failure = language === 'ar' ? 'قراءة جزئية؛ أكمل البيانات يدويًا.' : 'Partial reading; complete fields manually.'; }
+            else { append([manualInvoice(page.partial, reason)], item, pageNumber); rowsAdded++; failure = reason || (language === 'ar' ? 'أكمل البيانات يدويًا.' : 'Complete fields manually.'); }
           }
+          if (!rowsAdded) throw new Error(language === 'ar' ? 'لم توجد صفحات قابلة للقراءة.' : 'No readable pages.');
+        } catch (error: any) {
+          if (controller.signal.aborted) throw error;
+          failure = error.message || (language === 'ar' ? 'تعذرت قراءة الملف.' : 'Could not read file.');
+          append([manualInvoice({}, failure)], item, item.type === 'application/pdf' ? pageNumber : undefined); rowsAdded++;
         }
-
-        // Smart pacing breather: insert a 3.5s delay between consecutive invoices
-        // to stay naturally within the 15 requests/minute free limit!
-        if (i < newQueueItems.length - 1 && !isCancelledRef.current) {
-          // If we completed a chunk of 10, give an extra 6-second buffer
-          const isChunkBoundary = (i + 1) % CHUNK_SIZE === 0;
-          await sleep(isChunkBoundary ? 6000 : 3500);
-        }
+        setFileQueue(previous => previous.map(row => row.id === item.id ? { ...row, status: failure ? 'error' : 'done', extractedCount: rowsAdded, errorMessage: failure ? `${failure} — ${language === 'ar' ? 'أُضيف صف للمراجعة اليدوية' : 'Manual review row added'}` : undefined } : row));
       }
-
-      if (isCancelledRef.current) {
-        const ids = new Set(newQueueItems.map(item => item.id));
-        setFileQueue(prev => prev.map(item => ids.has(item.id) && (item.status === 'pending' || item.status === 'processing') ? { ...item, status: 'error', errorMessage: language === 'ar' ? 'تم الإلغاء' : 'Cancelled' } : item));
-      }
-      batchBusy.current = false;
-      requestController.current = null;
-      setIsProcessing(false);
-      setBatchActive(false);
-
-      if (totalExtractedSoFar > 0) {
-        showToast('success', t.batchCompletedCelebration(totalExtractedSoFar));
-      }
-    },
-    [t, language, apiKey, model]
-  );
+    } catch (error: any) {
+      if (!controller.signal.aborted) showToast('error', error.message || 'Read error');
+      const ids = new Set(queue.map(item => item.id));
+      setFileQueue(previous => previous.map(row => ids.has(row.id) && (row.status === 'pending' || row.status === 'processing') ? { ...row, status: 'error', errorMessage: language === 'ar' ? 'تم الإلغاء' : 'Cancelled' } : row));
+    } finally {
+      batchBusy.current = false; requestController.current = null;
+      setIsProcessing(false); setBatchActive(false); setIsCooldown(false); setCooldownSeconds(0); setLocalProgress('');
+      if (count) showToast(manualCount ? 'info' : 'success', language === 'ar' ? `أُضيف ${count} صفًا؛ ${manualCount} للمراجعة اليدوية. راجع الأصل قبل التصدير.` : `${count} rows added; ${manualCount} need manual review. Check originals before export.`);
+    }
+  }, [language, apiKey, model]);
 
   const handlePauseBatch = () => {
     isPausedRef.current = true;
@@ -468,7 +339,7 @@ export default function App() {
         <p role="status" className="text-xs text-muted border-s-2 border-primary ps-3 py-1">{language === 'ar' ? 'جلسة مؤقتة: لا يوجد أرشيف للفواتير. نزّل ملف Excel قبل إغلاق الصفحة.' : 'Temporary session: no invoice archive. Download your Excel file before closing this page.'}{hasUnexportedRows && <strong className="text-primary ms-2">{language === 'ar' ? 'توجد نتائج لم تُصدّر.' : 'Some results have not been exported.'}</strong>}</p>
 
         <section className="flex flex-wrap justify-between items-center gap-3 p-4 bg-surface border border-line rounded-xl text-sm">
-          <p className="text-muted">{language === 'ar' ? (apiKey ? 'مفتاحك مضاف لهذه الجلسة فقط. القراءة تُخصم من حسابك.' : 'ابدأ بإضافة مفتاح Gemini الخاص بك. لا حاجة لتسجيل حساب في الموقع.') : (apiKey ? 'Your key is set for this session. Usage is charged to your provider account.' : 'Add your Gemini key to begin. No website account needed.')}</p>
+          <p className="text-muted">{language === 'ar' ? (apiKey ? 'QR والنص أولًا محليًا؛ Gemini يستخدم فقط للصفحات غير المقروءة.' : 'QR وقراءة نص PDF بدون مفتاح. Gemini اختياري عند الحاجة، والفشل يُضاف للمراجعة اليدوية.') : (apiKey ? 'QR and text are read locally first; Gemini is used only for unreadable pages.' : 'QR and PDF text need no key. Gemini is optional; failed pages become manual review rows.')}</p>
           <div className="flex gap-3"><button disabled={isProcessing} className="text-primary font-bold" onClick={() => setIsApiKeyGuideOpen(true)}>{language === 'ar' ? (apiKey ? 'إعدادات المفتاح' : 'إضافة مفتاحي') : (apiKey ? 'Key settings' : 'Add my key')}</button>{apiKey && <button disabled={isProcessing} className="text-rose-700" onClick={() => setApiKey('')}>{language === 'ar' ? 'مسح المفتاح' : 'Clear key'}</button>}</div>
         </section>
         {/* Upload & Drop Zone */}
@@ -486,6 +357,7 @@ export default function App() {
           <p className="my-2">{language === 'ar' ? 'عداد محلي، وليس الرصيد الفعلي أو حدود حساب مزوّد الذكاء الاصطناعي.' : 'A local counter, not your AI provider’s actual balance or account limits.'}</p>
           <QuotaTracker quota={quota} t={t} language={language} />
         </details>
+        {localProgress && <p role="status" className="text-sm text-primary">{localProgress}</p>}
         {/* Financial Metrics Cards */}
         {invoices.length > 0 && <SummaryCards invoices={invoices} t={t} language={language} />}
 
@@ -522,6 +394,7 @@ export default function App() {
 
       {/* Manual Entry / Edit Modal */}
       <InvoiceModal
+        key={editingInvoice?.id || 'new-invoice'}
         isOpen={isModalOpen}
         onClose={() => {
           setIsModalOpen(false);

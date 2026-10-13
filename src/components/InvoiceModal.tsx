@@ -24,7 +24,7 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
   language,
 }) => {
   const dialog = useDialog(isOpen, onClose);
-  const [formData, setFormData] = useState<Partial<InvoiceRow>>({
+  const [formData, setFormData] = useState<Partial<InvoiceRow>>(initialData || {
     no: nextSequenceNo,
     date: new Date().toISOString().split('T')[0],
     sellerName: '',
@@ -74,6 +74,10 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
   };
 
   const handleAmountBeforeChange = (val: number) => {
+    if (initialData?.extractionSource === 'MANUAL' && !Number.isFinite(formData.tax)) {
+      setFormData({ ...formData, amountBeforeTax: val });
+      return;
+    }
     const rate = formData.taxRatePercent !== undefined ? formData.taxRatePercent : 15;
     const computedTax = Number(((val * rate) / 100).toFixed(2));
     const computedTotal = Number((val + computedTax).toFixed(2));
@@ -87,7 +91,7 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
   };
 
   const handleTaxChange = (val: number) => {
-    const amountBefore = Number(formData.amountBeforeTax) || 0;
+    const amountBefore = Number(formData.amountBeforeTax);
     const computedTotal = Number((amountBefore + val).toFixed(2));
     const rate = amountBefore > 0 ? Number(((val / amountBefore) * 100).toFixed(1)) : 0;
 
@@ -117,6 +121,7 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
           <button
             type="button"
             onClick={onClose}
+            aria-label={language === 'ar' ? 'إغلاق' : 'Close'}
             className="p-1 rounded-lg text-muted hover:text-ink hover:bg-canvas transition"
           >
             <X className="w-4 h-4" />
@@ -126,10 +131,11 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
         <div className={initialData?.filePreviewUrl ? 'grid md:grid-cols-2' : 'max-w-xl mx-auto'}>
           {initialData?.filePreviewUrl && <section className="bg-canvas p-4 border-b md:border-b-0 md:border-e border-line">
             <p className="text-xs font-semibold text-muted mb-3">{language === 'ar' ? 'الأصل — راجع الحقول قبل التصدير' : 'Original — review fields before export'}</p>
-            {initialData.fileMimeType === 'application/pdf' ? <iframe title={initialData.fileName || 'Invoice PDF'} src={initialData.filePreviewUrl} className="w-full h-[40vh] md:h-[65vh] rounded-lg bg-white" /> : <img src={initialData.filePreviewUrl} alt={initialData.fileName || 'Invoice'} className="w-full max-h-[40vh] md:max-h-[65vh] object-contain" />}
+            {initialData.fileMimeType === 'application/pdf' ? <iframe title={initialData.fileName || 'Invoice PDF'} src={`${initialData.filePreviewUrl}#page=${initialData.filePageNumber || 1}`} className="w-full h-[40vh] md:h-[65vh] rounded-lg bg-white" /> : <img src={`${initialData.filePreviewUrl}#page=${initialData.filePageNumber || 1}`} alt={initialData.fileName || 'Invoice'} className="w-full max-h-[40vh] md:max-h-[65vh] object-contain" />}
           </section>}
         {/* Modal Form */}
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          {initialData?.notes && <p className="text-xs text-muted bg-canvas rounded-lg p-3 leading-relaxed">{initialData.notes}</p>}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {/* مسلسل (no) */}
             <div>
@@ -267,8 +273,8 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
                 <input
                   type="number"
                   step="0.01"
-                  value={formData.amountBeforeTax ?? 0}
-                  onChange={(e) => handleAmountBeforeChange(parseFloat(e.target.value) || 0)}
+                  value={Number.isFinite(formData.amountBeforeTax) ? formData.amountBeforeTax : ''}
+                  onChange={(e) => handleAmountBeforeChange(e.target.value === '' ? NaN : Number(e.target.value))}
                   className={`w-full px-3 py-2 bg-surface border border-line rounded-xl text-xs font-mono text-amber-700 focus:outline-none focus:border-emerald-500 font-bold ${
                     language === 'ar' ? 'text-left' : 'text-right'
                   }`}
@@ -284,8 +290,8 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
                 <input
                   type="number"
                   step="0.01"
-                  value={formData.tax ?? 0}
-                  onChange={(e) => handleTaxChange(parseFloat(e.target.value) || 0)}
+                  value={Number.isFinite(formData.tax) ? formData.tax : ''}
+                  onChange={(e) => handleTaxChange(e.target.value === '' ? NaN : Number(e.target.value))}
                   className={`w-full px-3 py-2 bg-surface border border-line rounded-xl text-xs font-mono text-violet-700 focus:outline-none focus:border-emerald-500 font-bold ${
                     language === 'ar' ? 'text-left' : 'text-right'
                   }`}
@@ -301,9 +307,9 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
                 <input
                   type="number"
                   step="0.01"
-                  value={formData.lastAmount ?? 0}
+                  value={Number.isFinite(formData.lastAmount) ? formData.lastAmount : ''}
                   onChange={(e) =>
-                    setFormData({ ...formData, lastAmount: parseFloat(e.target.value) || 0 })
+                    setFormData({ ...formData, lastAmount: e.target.value === '' ? NaN : Number(e.target.value) })
                   }
                   className={`w-full px-3 py-2 bg-surface border border-emerald-500/40 rounded-xl text-xs font-mono text-emerald-700 focus:outline-none focus:border-emerald-500 font-black ${
                     language === 'ar' ? 'text-left' : 'text-right'
