@@ -152,7 +152,7 @@ export const translations: Record<Language, Translations> = {
   ar: {
     dir: 'rtl',
     appTitle: 'إنفويس جريد | InvoiceGrid',
-    appSubtitle: 'النظام المحاسبي الذكي لتحويل فواتير الـ PDF والصور إلى جداول إكسيل معتمدة',
+    appSubtitle: 'النظام المحاسبي الذكي لتحويل فواتير الـ PDF والصور إلى جداول إكسيل قابلة للمراجعة',
     aiBadge: 'ذكاء اصطناعي OCR',
     loadSamples: 'تحميل فواتير تجريبية',
     clearTable: 'مسح الجدول',
@@ -200,7 +200,7 @@ export const translations: Record<Language, Translations> = {
     batchResume: 'استئناف المعالجة',
     batchCancel: 'إيقاف واحتفاظ بالمستخرج',
     batchPausedMessage: 'تم إيقاف المعالجة مؤقتاً بواسطة المستخدم. اضغط استئناف للمتابعة.',
-    batchCompletedCelebration: (count) => `اكتملت معالجة جميع الفواتير بنجاح! تم استخراج ${count} فاتورة وتفريغها في الجدول.`,
+    batchCompletedCelebration: (count) => `تم استخراج ${count} فاتورة. راجع النتائج وحالة الملفات قبل التصدير.`,
 
     // API Key Smart Guide Modal
     apiKeyGuideTitle: 'شاشة إرشادات إصدار وربط مفتاح الوكيل الصناعي (Gemini API)',
@@ -227,7 +227,7 @@ export const translations: Record<Language, Translations> = {
     pdfBadge: 'مستندات PDF متعددة الصفحات',
     ocrBadge: 'فواتير مصورة & مسح ضوئي OCR',
     batchBadge: 'استخراج دفعات ضخمة (حتى 200+ فاتورة مع تقسيم ذكي)',
-    uploadLimitsBadge: 'الحد الموصى به: 100-200 فاتورة / دفعة • أقصى حجم للملف: 25MB',
+    uploadLimitsBadge: 'الحد الموصى به: 100-200 فاتورة / دفعة • أقصى حجم للملف: 6 MB',
     queueTitle: 'قائمة معالجة الملفات',
     processingAi: 'جاري استخراج البيانات بالذكاء الاصطناعي...',
     remove: 'إزالة',
@@ -280,7 +280,7 @@ export const translations: Record<Language, Translations> = {
     previewModalSubtitle: 'رقم الفاتورة:',
     downloadOriginal: 'تحميل الملف الأصلي',
     extractedOcrTitle: 'البيانات المستخرجة بالـ OCR',
-    auditVerified: 'تم التدقيق المحاسبي',
+    auditVerified: 'راجع البيانات مع الأصل',
     noDocPreview: 'المستند تم إدخاله يدوياً أو تمت معالجته بدون حفظ نسخة المعاينة.',
 
     toastSamplesLoaded: 'تم تحميل فواتير نموذجية بنجاح! يمكنك الآن تجربة تصدير ملف الإكسيل أو التعديل.',
@@ -291,7 +291,7 @@ export const translations: Record<Language, Translations> = {
     toastRowDeleted: 'تم حذف السطر وتحديث التسلسل.',
     toastRowAdded: 'تمت إضافة الفاتورة يدوياً إلى الجدول.',
 
-    footerText: 'نظام استخراج فواتير المشتريات الضريبية وتحويلها إلى جداول إكسيل (.xlsx) معتمدة',
+    footerText: 'نظام استخراج فواتير المشتريات الضريبية وتحويلها إلى جداول إكسيل (.xlsx) للمراجعة والتصدير',
     footerColumns: 'مطابق لتنسيق الأعمدة المحاسبي: مسلسل | التاريخ | اسم المورد | الرقم الضريبي | رقم الفاتوره | البيانات | المبلغ قبل الضريبه | الضريبه | المبلغ بعد الضريبه',
   },
   en: {
@@ -345,7 +345,7 @@ export const translations: Record<Language, Translations> = {
     batchResume: 'Resume',
     batchCancel: 'Stop & Keep Extracted',
     batchPausedMessage: 'Batch processing paused by user. Click Resume to continue.',
-    batchCompletedCelebration: (count) => `All invoices processed successfully! ${count} invoices extracted into spreadsheet.`,
+    batchCompletedCelebration: (count) => `${count} invoices extracted. Review the results and file statuses before exporting.`,
 
     // API Key Smart Guide Modal
     apiKeyGuideTitle: 'AI Agent & Gemini API Key Guide',
@@ -372,7 +372,7 @@ export const translations: Record<Language, Translations> = {
     pdfBadge: 'Multi-page PDF Documents',
     ocrBadge: 'Scanned Invoices & OCR Vision',
     batchBadge: 'Large Batches (up to 200+ invoices with smart pacing)',
-    uploadLimitsBadge: 'Recommended: 100-200 invoices / batch • Max file: 25MB',
+    uploadLimitsBadge: 'Recommended: 100-200 invoices / batch • Max file: 6 MB',
     queueTitle: 'File Processing Queue',
     processingAi: 'Extracting data with AI OCR...',
     remove: 'Remove',
@@ -436,7 +436,7 @@ export const translations: Record<Language, Translations> = {
     toastRowDeleted: 'Row deleted and sequence re-indexed.',
     toastRowAdded: 'Invoice added manually to table.',
 
-    footerText: 'Tax purchase invoice extraction system into verified Excel (.xlsx) spreadsheets',
+    footerText: 'Invoice extraction into reviewable Excel (.xlsx) spreadsheets',
     footerColumns: 'Matching accountant columns: no | date | The seller\'s name | tax number | invoice number | details | amount befor tax | tax | last amount',
   },
 };

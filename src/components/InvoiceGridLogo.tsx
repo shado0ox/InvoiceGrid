@@ -139,14 +139,14 @@ export const InvoiceGridLogo: React.FC<LogoProps> = ({
       {showText && (
         <div className="flex flex-col">
           <div className="flex items-center gap-1.5">
-            <span className="text-lg font-black tracking-tight text-white font-['Inter',sans-serif]">
-              Invoice<span className="text-emerald-400">Grid</span>
+            <span className="text-lg font-black tracking-tight text-ink font-['Inter',sans-serif]">
+              Invoice<span className="text-emerald-700">Grid</span>
             </span>
-            <span className="text-xs px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-300 font-bold border border-emerald-500/20 font-['Cairo',sans-serif]">
+            <span className="text-xs px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-700 font-bold border border-emerald-500/20 font-['Cairo',sans-serif]">
               إنفويس جريد
             </span>
           </div>
-          <span className="text-[10px] text-slate-400 font-medium font-['Cairo',sans-serif]">
+          <span className="text-[10px] text-muted font-medium font-['Cairo',sans-serif]">
             تحويل الفواتير والـ PDF إلى جداول إكسيل بالذكاء الاصطناعي
           </span>
         </div>

@@ -8,6 +8,7 @@ interface UploadZoneProps {
   fileQueue: FileQueueItem[];
   onRemoveQueueItem?: (id: string) => void;
   isProcessing: boolean;
+  compact?: boolean;
   t: Translations;
 }
 
@@ -16,6 +17,7 @@ export const UploadZone: React.FC<UploadZoneProps> = ({
   fileQueue,
   onRemoveQueueItem,
   isProcessing,
+  compact = false,
   t,
 }) => {
   const [isDragOver, setIsDragOver] = useState(false);
@@ -81,78 +83,84 @@ export const UploadZone: React.FC<UploadZoneProps> = ({
 
   return (
     <div className="mb-6 space-y-4">
+      <p className="text-xs text-muted mb-2">{t.dir === 'rtl' ? 'PDF · JPG · PNG · WebP | حتى 6 MB للملف. تُرسل مباشرة إلى Gemini باستخدام مفتاحك، وليس إلى سيرفر الموقع.' : 'PDF · JPG · PNG · WebP | Up to 6 MB per file. Documents go directly to Gemini using your key, not to this website’s server.'}</p>
       {/* Drop Zone Box */}
       <div
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
-        onClick={() => fileInputRef.current?.click()}
-        className={`relative border-2 border-dashed rounded-2xl p-6 sm:p-8 text-center cursor-pointer transition-all duration-200 group ${
+        role="button"
+        tabIndex={isProcessing ? -1 : 0}
+        aria-disabled={isProcessing}
+        onKeyDown={event => { if (!isProcessing && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); fileInputRef.current?.click(); } }}
+        onClick={() => { if (!isProcessing) fileInputRef.current?.click(); }}
+        className={`relative border-2 border-dashed rounded-2xl ${compact ? 'p-4' : 'p-6 sm:p-8'} text-center cursor-pointer transition-all duration-200 group ${
           isDragOver
             ? 'border-emerald-400 bg-emerald-950/20 shadow-lg shadow-emerald-950/40 scale-[1.005]'
-            : 'border-slate-800 bg-slate-900/60 hover:border-slate-700 hover:bg-slate-900/90'
+            : 'border-line bg-surface hover:border-line hover:bg-surface'
         }`}
       >
         <input
           ref={fileInputRef}
           type="file"
           multiple
-          accept="image/*,application/pdf"
+          accept="image/jpeg,image/png,image/webp,application/pdf"
+          disabled={isProcessing}
           onChange={handleInputChange}
           className="hidden"
         />
 
-        <div className="flex flex-col items-center justify-center gap-3">
+        <div className={`flex ${compact ? 'flex-row gap-3' : 'flex-col gap-3'} items-center justify-center`}>
           <div
             className={`w-14 h-14 rounded-2xl flex items-center justify-center transition-transform group-hover:scale-105 duration-200 shadow-md ${
               isDragOver
                 ? 'bg-emerald-500 text-white'
-                : 'bg-slate-800 text-emerald-400 border border-slate-700/80'
+                : 'bg-canvas text-emerald-700 border border-line'
             }`}
           >
             {isProcessing ? (
-              <Loader2 className="w-7 h-7 animate-spin text-emerald-400" />
+              <Loader2 className="w-7 h-7 animate-spin text-emerald-700" />
             ) : (
               <UploadCloud className="w-7 h-7" />
             )}
           </div>
 
           <div>
-            <h3 className="text-base sm:text-lg font-bold text-white mb-1">
+            <h3 className="text-base sm:text-lg font-bold text-ink mb-1">
               {isDragOver ? t.dropTitleDrag : t.dropTitleNormal}
             </h3>
-            <p className="text-xs sm:text-sm text-slate-400 max-w-xl mx-auto">
+            <p className={`${compact ? 'hidden' : ''} text-xs sm:text-sm text-muted max-w-xl mx-auto`}>
               {t.dropSubtitle}
             </p>
           </div>
 
-          <div className="flex flex-wrap items-center justify-center gap-2 pt-1 text-xs text-slate-500">
-            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-slate-800/80 border border-slate-700/60">
+          {!compact && <div className="flex flex-wrap items-center justify-center gap-2 pt-1 text-xs text-muted">
+            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-canvas border border-line">
               <FileText className="w-3.5 h-3.5 text-red-400" /> {t.pdfBadge}
             </span>
-            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-slate-800/80 border border-slate-700/60">
-              <ImageIcon className="w-3.5 h-3.5 text-emerald-400" /> {t.ocrBadge}
+            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-canvas border border-line">
+              <ImageIcon className="w-3.5 h-3.5 text-emerald-700" /> {t.ocrBadge}
             </span>
-            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-slate-800/80 border border-slate-700/60">
-              <Sparkles className="w-3.5 h-3.5 text-amber-400" /> {t.batchBadge}
+            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-canvas border border-line">
+              <Sparkles className="w-3.5 h-3.5 text-amber-700" /> {t.batchBadge}
             </span>
-            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 font-mono text-[11px]">
-              <FileType className="w-3.5 h-3.5 text-emerald-400" /> {t.uploadLimitsBadge}
+            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-emerald-500/10 text-emerald-700 border border-emerald-500/20 font-mono text-[11px]">
+              <FileType className="w-3.5 h-3.5 text-emerald-700" /> {t.uploadLimitsBadge}
             </span>
-          </div>
+          </div>}
         </div>
       </div>
 
       {/* File Processing Queue List if any files uploaded */}
       {fileQueue.length > 0 && (
-        <div className="bg-slate-900/80 border border-slate-800 rounded-xl p-4">
+        <div className="bg-surface border border-line rounded-xl p-4">
           <div className="flex items-center justify-between mb-3 text-xs">
-            <span className="font-semibold text-slate-300 flex items-center gap-2">
-              <FileType className="w-4 h-4 text-emerald-400" />
+            <span className="font-semibold text-ink flex items-center gap-2">
+              <FileType className="w-4 h-4 text-emerald-700" />
               {t.queueTitle} ({completedCount} / {fileQueue.length})
             </span>
             {isProcessing && (
-              <span className="text-emerald-400 flex items-center gap-1.5 animate-pulse font-medium">
+              <span className="text-emerald-700 flex items-center gap-1.5 animate-pulse font-medium">
                 <Loader2 className="w-3 h-3 animate-spin" />
                 {t.processingAi}
               </span>
@@ -160,7 +168,7 @@ export const UploadZone: React.FC<UploadZoneProps> = ({
           </div>
 
           {/* Progress Bar */}
-          <div className="w-full bg-slate-800 rounded-full h-1.5 mb-3 overflow-hidden">
+          <div className="w-full bg-canvas rounded-full h-1.5 mb-3 overflow-hidden">
             <div
               className="bg-emerald-500 h-1.5 rounded-full transition-all duration-300"
               style={{
@@ -176,26 +184,26 @@ export const UploadZone: React.FC<UploadZoneProps> = ({
                 key={item.id}
                 className={`flex items-center justify-between p-2 rounded-lg border text-xs ${
                   item.status === 'processing'
-                    ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+                    ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-700'
                     : item.status === 'done'
-                    ? 'bg-slate-800/50 border-slate-700/60 text-slate-300'
+                    ? 'bg-canvas border-line text-ink'
                     : item.status === 'error'
-                    ? 'bg-rose-500/10 border-rose-500/30 text-rose-300'
-                    : 'bg-slate-800/30 border-slate-800 text-slate-400'
+                    ? 'bg-rose-500/10 border-rose-500/30 text-rose-700'
+                    : 'bg-canvas border-line text-muted'
                 }`}
               >
                 <div className="flex items-center gap-2 overflow-hidden flex-1 min-w-0">
                   {item.status === 'processing' && (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-400 flex-shrink-0" />
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-700 flex-shrink-0" />
                   )}
                   {item.status === 'done' && (
-                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-700 flex-shrink-0" />
                   )}
                   {item.status === 'error' && (
-                    <AlertCircle className="w-3.5 h-3.5 text-rose-400 flex-shrink-0" />
+                    <AlertCircle className="w-3.5 h-3.5 text-rose-700 flex-shrink-0" />
                   )}
                   {item.status === 'pending' && (
-                    <FileText className="w-3.5 h-3.5 text-slate-500 flex-shrink-0" />
+                    <FileText className="w-3.5 h-3.5 text-muted flex-shrink-0" />
                   )}
 
                   <span className="truncate font-mono" title={item.name}>
@@ -204,14 +212,14 @@ export const UploadZone: React.FC<UploadZoneProps> = ({
                 </div>
 
                 <div className="flex items-center gap-1.5 flex-shrink-0 mx-2">
-                  <span className="text-[10px] text-slate-500">
+                  <span className="text-[10px] text-muted">
                     {(item.size / 1024).toFixed(0)} KB
                   </span>
                   {onRemoveQueueItem && item.status !== 'processing' && (
                     <button
                       type="button"
                       onClick={() => onRemoveQueueItem(item.id)}
-                      className="text-slate-500 hover:text-rose-400 transition"
+                      className="text-muted hover:text-rose-700 transition"
                       title={t.remove}
                     >
                       <X className="w-3.5 h-3.5" />

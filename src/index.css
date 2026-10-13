@@ -1,40 +1,29 @@
 @import "tailwindcss";
-
+@theme {
+  --color-canvas: #f3f6fa;
+  --color-surface: #ffffff;
+  --color-ink: #172b4d;
+  --color-muted: #64748b;
+  --color-line: #dce3ec;
+  --color-primary: #146c5e;
+}
 @layer base {
-  body {
-    font-family: 'Cairo', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-  }
+  body { margin: 0; background: var(--color-canvas); color: var(--color-ink); font-family: 'Cairo', system-ui, sans-serif; }
+  button, input, select, textarea { font: inherit; }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  button:not(:disabled), summary { cursor: pointer; }
+  :focus-visible { outline: 3px solid var(--color-primary); outline-offset: 3px; }
+  input, .font-mono { font-variant-numeric: tabular-nums; }
+  th { white-space: nowrap; }
 }
-
-/* Custom scrollbars for clean accounting grid */
-::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: var(--color-canvas); }
+::-webkit-scrollbar-thumb { background: #bdcad8; border-radius: 4px; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
 }
-
-::-webkit-scrollbar-track {
-  background: #090d16;
-}
-
-::-webkit-scrollbar-thumb {
-  background: #1e293b;
-  border-radius: 4px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: #334155;
-}
-
-/* Print styles for generating paper reports */
 @media print {
-  body {
-    background: white !important;
-    color: black !important;
-  }
-  .no-print {
-    display: none !important;
-  }
-  .print-only {
-    display: block !important;
-  }
+  body { background: white; color: black; }
+  .no-print { display: none !important; }
+  .print-only { display: block !important; }
 }
