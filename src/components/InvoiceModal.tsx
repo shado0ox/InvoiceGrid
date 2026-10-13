@@ -1,3 +1,4 @@
+import { useDialog } from '../utils/useDialog';
 import React, { useState, useEffect } from 'react';
 import { X, Check, Calculator } from 'lucide-react';
 import { InvoiceRow } from '../types';
@@ -22,6 +23,7 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
   t,
   language,
 }) => {
+  const dialog = useDialog(isOpen, onClose);
   const [formData, setFormData] = useState<Partial<InvoiceRow>>({
     no: nextSequenceNo,
     date: new Date().toISOString().split('T')[0],
@@ -105,49 +107,54 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-xl overflow-hidden shadow-2xl">
+      <div ref={dialog} role="dialog" aria-modal="true" aria-label={initialData ? t.modalEditTitle : t.modalAddTitle} className="bg-surface border border-line rounded-2xl w-full max-w-6xl max-h-[92vh] overflow-auto shadow-2xl">
         {/* Modal Header */}
-        <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between bg-slate-950/50">
-          <h2 className="text-base font-bold text-white flex items-center gap-2">
-            <Calculator className="w-4 h-4 text-emerald-400" />
+        <div className="px-6 py-4 border-b border-line flex items-center justify-between bg-surface">
+          <h2 className="text-base font-bold text-ink flex items-center gap-2">
+            <Calculator className="w-4 h-4 text-emerald-700" />
             {initialData ? t.modalEditTitle : t.modalAddTitle}
           </h2>
           <button
             type="button"
             onClick={onClose}
-            className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
+            className="p-1 rounded-lg text-muted hover:text-ink hover:bg-canvas transition"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
+        <div className={initialData?.filePreviewUrl ? 'grid md:grid-cols-2' : 'max-w-xl mx-auto'}>
+          {initialData?.filePreviewUrl && <section className="bg-canvas p-4 border-b md:border-b-0 md:border-e border-line">
+            <p className="text-xs font-semibold text-muted mb-3">{language === 'ar' ? 'الأصل — راجع الحقول قبل التصدير' : 'Original — review fields before export'}</p>
+            {initialData.fileMimeType === 'application/pdf' ? <iframe title={initialData.fileName || 'Invoice PDF'} src={initialData.filePreviewUrl} className="w-full h-[40vh] md:h-[65vh] rounded-lg bg-white" /> : <img src={initialData.filePreviewUrl} alt={initialData.fileName || 'Invoice'} className="w-full max-h-[40vh] md:max-h-[65vh] object-contain" />}
+          </section>}
         {/* Modal Form */}
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {/* مسلسل (no) */}
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">
+              <label className="block text-xs font-semibold text-ink mb-1">
                 {t.colNo} ({t.subNo})
               </label>
               <input
                 type="number"
                 value={formData.no ?? nextSequenceNo}
                 onChange={(e) => setFormData({ ...formData, no: parseInt(e.target.value) || 1 })}
-                className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-xs font-mono text-white focus:outline-none focus:border-emerald-500"
+                className="w-full px-3 py-2 bg-surface border border-line rounded-xl text-xs font-mono text-ink focus:outline-none focus:border-emerald-500"
                 required
               />
             </div>
 
             {/* التاريخ (date) */}
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">
+              <label className="block text-xs font-semibold text-ink mb-1">
                 {t.colDate} ({t.subDate})
               </label>
               <input
                 type="date"
                 value={formData.date ?? ''}
                 onChange={(e) => setFormData({ ...formData, date: e.target.value })}
-                className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-xs font-mono text-white focus:outline-none focus:border-emerald-500"
+                className="w-full px-3 py-2 bg-surface border border-line rounded-xl text-xs font-mono text-ink focus:outline-none focus:border-emerald-500"
                 required
               />
             </div>
@@ -156,7 +163,7 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {/* اسم المورد (The seller's name) */}
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">
+              <label className="block text-xs font-semibold text-ink mb-1">
                 {t.colSeller} ({t.subSeller})
               </label>
               <input
@@ -164,14 +171,14 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
                 placeholder={t.sellerPlaceholder}
                 value={formData.sellerName ?? ''}
                 onChange={(e) => setFormData({ ...formData, sellerName: e.target.value })}
-                className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500"
+                className="w-full px-3 py-2 bg-surface border border-line rounded-xl text-xs text-ink focus:outline-none focus:border-emerald-500"
                 required
               />
             </div>
 
             {/* الرقم الضريبي (tax number) */}
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">
+              <label className="block text-xs font-semibold text-ink mb-1">
                 {t.colTaxNo} ({t.subTaxNo})
               </label>
               <input
@@ -179,7 +186,7 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
                 placeholder={t.taxNoPlaceholder}
                 value={formData.taxNumber ?? ''}
                 onChange={(e) => setFormData({ ...formData, taxNumber: e.target.value })}
-                className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-xs font-mono text-white focus:outline-none focus:border-emerald-500"
+                className="w-full px-3 py-2 bg-surface border border-line rounded-xl text-xs font-mono text-ink focus:outline-none focus:border-emerald-500"
               />
             </div>
           </div>
@@ -187,7 +194,7 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {/* رقم الفاتوره (invoice number) */}
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">
+              <label className="block text-xs font-semibold text-ink mb-1">
                 {t.colInvNo} ({t.subInvNo})
               </label>
               <input
@@ -195,14 +202,14 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
                 placeholder={t.invNoPlaceholder}
                 value={formData.invoiceNumber ?? ''}
                 onChange={(e) => setFormData({ ...formData, invoiceNumber: e.target.value })}
-                className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-xs font-mono text-white focus:outline-none focus:border-emerald-500"
+                className="w-full px-3 py-2 bg-surface border border-line rounded-xl text-xs font-mono text-ink focus:outline-none focus:border-emerald-500"
                 required
               />
             </div>
 
             {/* العملة */}
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">
+              <label className="block text-xs font-semibold text-ink mb-1">
                 {t.currencyLabel}
               </label>
               <input
@@ -210,14 +217,14 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
                 placeholder="SAR / EGP / AED / USD"
                 value={formData.currency ?? 'SAR'}
                 onChange={(e) => setFormData({ ...formData, currency: e.target.value })}
-                className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-xs font-mono text-white focus:outline-none focus:border-emerald-500"
+                className="w-full px-3 py-2 bg-surface border border-line rounded-xl text-xs font-mono text-ink focus:outline-none focus:border-emerald-500"
               />
             </div>
           </div>
 
           {/* البيانات (details) */}
           <div>
-            <label className="block text-xs font-semibold text-slate-300 mb-1">
+            <label className="block text-xs font-semibold text-ink mb-1">
               {t.colDetails} ({t.subDetails})
             </label>
             <textarea
@@ -225,14 +232,14 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
               placeholder={t.detailsPlaceholder}
               value={formData.details ?? ''}
               onChange={(e) => setFormData({ ...formData, details: e.target.value })}
-              className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500"
+              className="w-full px-3 py-2 bg-surface border border-line rounded-xl text-xs text-ink focus:outline-none focus:border-emerald-500"
             />
           </div>
 
           {/* Financial Amounts with Quick Tax Buttons */}
-          <div className="p-4 bg-slate-950/70 border border-slate-800 rounded-xl space-y-3">
+          <div className="p-4 bg-surface border border-line rounded-xl space-y-3">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-slate-300">{t.taxCalcAuto}</span>
+              <span className="text-xs font-semibold text-ink">{t.taxCalcAuto}</span>
               <div className="flex items-center gap-1.5">
                 {[15, 14, 5, 0].map((rate) => (
                   <button
@@ -242,7 +249,7 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
                     className={`px-2.5 py-1 text-[11px] rounded-lg font-mono font-bold transition ${
                       formData.taxRatePercent === rate
                         ? 'bg-emerald-500 text-white shadow-sm'
-                        : 'bg-slate-800 text-slate-400 hover:text-white'
+                        : 'bg-canvas text-muted hover:text-ink'
                     }`}
                   >
                     %{rate}
@@ -254,7 +261,7 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               {/* المبلغ قبل الضريبه */}
               <div>
-                <label className="block text-[11px] font-semibold text-amber-300 mb-1">
+                <label className="block text-[11px] font-semibold text-amber-700 mb-1">
                   {t.colBeforeTax} ({t.subBeforeTax})
                 </label>
                 <input
@@ -262,7 +269,7 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
                   step="0.01"
                   value={formData.amountBeforeTax ?? 0}
                   onChange={(e) => handleAmountBeforeChange(parseFloat(e.target.value) || 0)}
-                  className={`w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-xs font-mono text-amber-200 focus:outline-none focus:border-emerald-500 font-bold ${
+                  className={`w-full px-3 py-2 bg-surface border border-line rounded-xl text-xs font-mono text-amber-700 focus:outline-none focus:border-emerald-500 font-bold ${
                     language === 'ar' ? 'text-left' : 'text-right'
                   }`}
                   required
@@ -271,7 +278,7 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
 
               {/* الضريبه */}
               <div>
-                <label className="block text-[11px] font-semibold text-violet-300 mb-1">
+                <label className="block text-[11px] font-semibold text-violet-700 mb-1">
                   {t.colTax} ({t.subTax})
                 </label>
                 <input
@@ -279,7 +286,7 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
                   step="0.01"
                   value={formData.tax ?? 0}
                   onChange={(e) => handleTaxChange(parseFloat(e.target.value) || 0)}
-                  className={`w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-xs font-mono text-violet-200 focus:outline-none focus:border-emerald-500 font-bold ${
+                  className={`w-full px-3 py-2 bg-surface border border-line rounded-xl text-xs font-mono text-violet-700 focus:outline-none focus:border-emerald-500 font-bold ${
                     language === 'ar' ? 'text-left' : 'text-right'
                   }`}
                   required
@@ -288,7 +295,7 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
 
               {/* المبلغ بعد الضريبه */}
               <div>
-                <label className="block text-[11px] font-semibold text-emerald-300 mb-1">
+                <label className="block text-[11px] font-semibold text-emerald-700 mb-1">
                   {t.colLastAmount} ({t.subLastAmount})
                 </label>
                 <input
@@ -298,7 +305,7 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
                   onChange={(e) =>
                     setFormData({ ...formData, lastAmount: parseFloat(e.target.value) || 0 })
                   }
-                  className={`w-full px-3 py-2 bg-slate-900 border border-emerald-500/40 rounded-xl text-xs font-mono text-emerald-300 focus:outline-none focus:border-emerald-500 font-black ${
+                  className={`w-full px-3 py-2 bg-surface border border-emerald-500/40 rounded-xl text-xs font-mono text-emerald-700 focus:outline-none focus:border-emerald-500 font-black ${
                     language === 'ar' ? 'text-left' : 'text-right'
                   }`}
                   required
@@ -308,11 +315,11 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
           </div>
 
           {/* Modal Footer */}
-          <div className="pt-3 border-t border-slate-800 flex items-center justify-end gap-3">
+          <div className="pt-3 border-t border-line flex items-center justify-end gap-3">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 rounded-xl text-xs font-medium text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-750 transition"
+              className="px-4 py-2 rounded-xl text-xs font-medium text-muted hover:text-ink bg-canvas hover:bg-canvas transition"
             >
               {t.cancel}
             </button>
@@ -325,6 +332,7 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
             </button>
           </div>
         </form>
+        </div>
       </div>
     </div>
   );

@@ -12,6 +12,7 @@ import { InvoiceRow, FileQueueItem } from './types';
 import { SAMPLE_INVOICES } from './data/sampleInvoices';
 import { translations, Language } from './i18n/translations';
 import { loadQuotaState, recordQuotaRequest, QuotaState } from './utils/quotaManager';
+import { rowFingerprint } from './utils/session';
 import { CheckCircle2, AlertCircle, Info, Sparkles } from 'lucide-react';
 
 export default function App() {
@@ -34,6 +35,17 @@ export default function App() {
   };
 
   const [invoices, setInvoices] = useState<InvoiceRow[]>([]);
+  const exportedRows = useRef(new Map<string, string>());
+  const [exportRevision, setExportRevision] = useState(0);
+  const hasUnexportedRows = invoices.some(row => exportedRows.current.get(row.id) !== rowFingerprint(row));
+  useEffect(() => {
+    const onExport = (event: Event) => {
+      for (const row of (event as CustomEvent<InvoiceRow[]>).detail) exportedRows.current.set(row.id, rowFingerprint(row));
+      setExportRevision(value => value + 1);
+    };
+    window.addEventListener('invoicegrid:export', onExport);
+    return () => window.removeEventListener('invoicegrid:export', onExport);
+  }, []);
   const [fileQueue, setFileQueue] = useState<FileQueueItem[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -41,6 +53,21 @@ export default function App() {
   const [previewInvoice, setPreviewInvoice] = useState<InvoiceRow | null>(null);
   const [isApiKeyGuideOpen, setIsApiKeyGuideOpen] = useState(false);
   const [toast, setToast] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null);
+
+  useEffect(() => {
+    const warn = (event: BeforeUnloadEvent) => {
+      if (hasUnexportedRows || isProcessing) { event.preventDefault(); event.returnValue = ''; }
+    };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [hasUnexportedRows, isProcessing, exportRevision]);
+  const previewUrls = useRef(new Set<string>());
+  useEffect(() => () => {
+    previewUrls.current.forEach(url => URL.revokeObjectURL(url));
+    requestController.current?.abort();
+  }, []);
+  const batchBusy = useRef(false);
+  const requestController = useRef<AbortController | null>(null);
 
   // Quota and batching state
   const [quota, setQuota] = useState<QuotaState>(loadQuotaState());
@@ -77,12 +104,15 @@ export default function App() {
   };
 
   const handleLoadSamples = () => {
+    if (invoices.length && !window.confirm(language === 'ar' ? 'استبدال النتائج الحالية بالفواتير التجريبية؟' : 'Replace current results with sample invoices?')) return;
     setInvoices(SAMPLE_INVOICES);
     showToast('success', t.toastSamplesLoaded);
   };
 
   const handleClearAll = () => {
     if (window.confirm(t.clearConfirm)) {
+      previewUrls.current.forEach(url => URL.revokeObjectURL(url));
+      previewUrls.current.clear();
       setInvoices([]);
       setFileQueue([]);
       showToast('info', t.toastCleared);
@@ -109,7 +139,12 @@ export default function App() {
   // Batch runner with smart rate limiting, throttling, and auto-cooldown
   const handleFilesSelected = useCallback(
     async (files: File[]) => {
-      if (!files || files.length === 0) return;
+      if (!files || files.length === 0 || batchBusy.current) return;
+      if (files.some(file => file.size > 6 * 1024 * 1024 || !['application/pdf', 'image/jpeg', 'image/png', 'image/webp'].includes(file.type))) {
+        showToast('error', language === 'ar' ? 'اختر PDF أو JPG أو PNG أو WebP؛ الحد الأقصى 6 MB لكل ملف.' : 'Choose PDF, JPG, PNG or WebP, up to 6 MB per file.');
+        return;
+      }
+      batchBusy.current = true;
 
       const newQueueItems: FileQueueItem[] = files.map((file) => ({
         id: `file-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
@@ -121,6 +156,7 @@ export default function App() {
         status: 'pending',
       }));
 
+      newQueueItems.forEach(item => previewUrls.current.add(item.previewUrl));
       setFileQueue((prev) => [...prev, ...newQueueItems]);
       setIsProcessing(true);
       isPausedRef.current = false;
@@ -153,6 +189,7 @@ export default function App() {
           await sleep(500);
         }
 
+        if (isCancelledRef.current) break;
         const item = newQueueItems[i];
         processedIndex = i + 1;
         setBatchCurrentIndex(processedIndex);
@@ -175,7 +212,10 @@ export default function App() {
             const mimeType =
               item.type || (item.name.endsWith('.pdf') ? 'application/pdf' : 'image/jpeg');
 
+            if (isCancelledRef.current) break;
+            requestController.current = new AbortController();
             const response = await fetch('/api/extract-invoice', {
+              signal: requestController.current.signal,
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
@@ -188,6 +228,7 @@ export default function App() {
             });
 
             const data = await response.json();
+            if (isCancelledRef.current) break;
 
             // Handle 429 Rate Limit Exhaustion gracefully
             if (response.status === 429 || data.isQuotaExceeded) {
@@ -203,9 +244,13 @@ export default function App() {
               setIsCooldown(false);
               setCooldownSeconds(0);
               setQuota((prev) => ({ ...prev, cooldownSeconds: 0 }));
+              if (attempt >= maxAttempts) setFileQueue(prev => prev.map(q => q.id === item.id ? { ...q, status: 'error', errorMessage: language === 'ar' ? 'حد المزوّد؛ حاول لاحقاً.' : 'Provider rate limit; try later.' } : q));
               continue; // Retry this file
             }
 
+            if (response.status === 401 || response.status === 403 || response.status === 503) {
+              attempt = maxAttempts;
+            }
             if (!response.ok || !data.success) {
               throw new Error(data.error || 'فشلت معالجة الفاتورة.');
             }
@@ -225,25 +270,27 @@ export default function App() {
               const newRows: InvoiceRow[] = extractedList.map((extracted: any, index: number) => ({
                 id: `inv-${Date.now()}-${Math.random().toString(36).substr(2, 7)}-${index}`,
                 no: currentTotalCount + index + 1,
-                date: extracted.date || new Date().toISOString().split('T')[0],
-                sellerName: extracted.sellerName || 'مورد',
+                date: extracted.date || '',
+                sellerName: extracted.sellerName || '',
                 taxNumber: extracted.taxNumber || '',
-                invoiceNumber: extracted.invoiceNumber || `INV-${Date.now().toString().slice(-4)}`,
-                details: extracted.details || 'مشتريات وبنود متنوعة',
+                invoiceNumber: extracted.invoiceNumber || '',
+                details: extracted.details || '',
                 amountBeforeTax: Number(extracted.amountBeforeTax) || 0,
                 tax: Number(extracted.tax) || 0,
                 lastAmount: Number(extracted.lastAmount) || 0,
-                currency: extracted.currency || 'SAR',
-                taxRatePercent: extracted.taxRatePercent || 15,
+                currency: extracted.currency || 'UNKNOWN',
+                taxRatePercent: extracted.taxRatePercent ?? 0,
                 fileName: item.name,
                 filePreviewUrl: item.previewUrl,
                 fileMimeType: item.type,
                 notes: extracted.notes,
               }));
-              totalExtractedSoFar += newRows.length;
-              setBatchExtractedCount(totalExtractedSoFar);
+
               return [...prev, ...newRows];
             });
+
+            totalExtractedSoFar += extractedList.length;
+            setBatchExtractedCount(totalExtractedSoFar);
 
             // Mark queue item as done
             setFileQueue((prev) =>
@@ -256,6 +303,7 @@ export default function App() {
 
             success = true;
           } catch (err: any) {
+            if (isCancelledRef.current) break;
             console.error(`Attempt ${attempt} error for ${item.name}:`, err);
             if (attempt >= maxAttempts) {
               setFileQueue((prev) =>
@@ -281,6 +329,12 @@ export default function App() {
         }
       }
 
+      if (isCancelledRef.current) {
+        const ids = new Set(newQueueItems.map(item => item.id));
+        setFileQueue(prev => prev.map(item => ids.has(item.id) && (item.status === 'pending' || item.status === 'processing') ? { ...item, status: 'error', errorMessage: language === 'ar' ? 'تم الإلغاء' : 'Cancelled' } : item));
+      }
+      batchBusy.current = false;
+      requestController.current = null;
       setIsProcessing(false);
       setBatchActive(false);
 
@@ -288,7 +342,7 @@ export default function App() {
         showToast('success', t.batchCompletedCelebration(totalExtractedSoFar));
       }
     },
-    [t]
+    [t, language]
   );
 
   const handlePauseBatch = () => {
@@ -304,8 +358,7 @@ export default function App() {
   const handleCancelBatch = () => {
     if (window.confirm('هل تريد إيقاف معالجة بقية الفواتير والاحتفاظ بالفواتير التي تم استخراجها؟')) {
       isCancelledRef.current = true;
-      setIsProcessing(false);
-      setBatchActive(false);
+      requestController.current?.abort();
       showToast('info', 'تم إيقاف المعالجة والاحتفاظ بالفواتير المستخرجة.');
     }
   };
@@ -359,7 +412,7 @@ export default function App() {
   return (
     <div
       dir={t.dir}
-      className={`min-h-screen bg-slate-950 text-slate-100 flex flex-col ${
+      className={`min-h-screen bg-canvas text-ink flex flex-col ${
         language === 'ar' ? "font-['Cairo',sans-serif]" : "font-['Inter',sans-serif]"
       }`}
     >
@@ -369,15 +422,15 @@ export default function App() {
           <div
             className={`flex items-center gap-2.5 px-4 py-2.5 rounded-xl shadow-2xl border text-xs sm:text-sm font-semibold backdrop-blur-md ${
               toast.type === 'success'
-                ? 'bg-emerald-950/90 text-emerald-200 border-emerald-500/50'
+                ? 'bg-emerald-50 text-emerald-700 border-emerald-500/50'
                 : toast.type === 'error'
-                ? 'bg-rose-950/90 text-rose-200 border-rose-500/50'
-                : 'bg-slate-900/90 text-slate-200 border-slate-700'
+                ? 'bg-rose-50 text-rose-700 border-rose-500/50'
+                : 'bg-surface text-ink border-line'
             }`}
           >
-            {toast.type === 'success' && <CheckCircle2 className="w-4 h-4 text-emerald-400" />}
-            {toast.type === 'error' && <AlertCircle className="w-4 h-4 text-rose-400" />}
-            {toast.type === 'info' && <Info className="w-4 h-4 text-sky-400" />}
+            {toast.type === 'success' && <CheckCircle2 className="w-4 h-4 text-emerald-700" />}
+            {toast.type === 'error' && <AlertCircle className="w-4 h-4 text-rose-700" />}
+            {toast.type === 'info' && <Info className="w-4 h-4 text-sky-700" />}
             <span>{toast.message}</span>
           </div>
         </div>
@@ -397,18 +450,33 @@ export default function App() {
 
       {/* Main Dashboard Container */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
-        {/* Free Quota Monitor Bar */}
-        <QuotaTracker quota={quota} t={t} language={language} />
+        <section className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
+          <div>
+            <p className="text-xs font-bold text-primary mb-2">{language === 'ar' ? 'مساحة تحويل الفواتير' : 'INVOICE CONVERSION DESK'}</p>
+            <h2 className="text-2xl sm:text-3xl font-bold tracking-tight">{language === 'ar' ? 'من الفاتورة إلى Excel، بوضوح.' : 'From invoice to Excel, clearly.'}</h2>
+            <p className="text-muted text-sm mt-2">{language === 'ar' ? 'ارفع المستندات، راجع البيانات، ثم صدّر بنفس ترتيب الأعمدة.' : 'Upload documents, review the data, then export in the original column order.'}</p>
+          </div>
+          <ol className="flex gap-4 text-xs text-muted" aria-label={language === 'ar' ? 'خطوات التحويل' : 'Conversion steps'}>
+            {(language === 'ar' ? ['رفع', 'مراجعة', 'تصدير'] : ['Upload', 'Review', 'Export']).map((step, index) => <li key={step} className="flex items-center gap-2"><span className="w-6 h-6 rounded-full bg-surface border border-line grid place-items-center font-mono text-primary">{index + 1}</span>{step}</li>)}
+          </ol>
+        </section>
+        <p role="status" className="text-xs text-muted border-s-2 border-primary ps-3 py-1">{language === 'ar' ? 'جلسة مؤقتة: لا يوجد أرشيف للفواتير. نزّل ملف Excel قبل إغلاق الصفحة.' : 'Temporary session: no invoice archive. Download your Excel file before closing this page.'}{hasUnexportedRows && <strong className="text-primary ms-2">{language === 'ar' ? 'توجد نتائج لم تُصدّر.' : 'Some results have not been exported.'}</strong>}</p>
 
         {/* Upload & Drop Zone */}
         <UploadZone
           onFilesSelected={handleFilesSelected}
+          compact={invoices.length > 0}
           fileQueue={fileQueue}
           isProcessing={isProcessing}
           onRemoveQueueItem={(id) => setFileQueue((prev) => prev.filter((q) => q.id !== id))}
           t={t}
         />
 
+        <details className="text-xs text-muted">
+          <summary>{language === 'ar' ? 'تقدير الاستخدام على هذا المتصفح' : 'Usage estimate on this browser'}</summary>
+          <p className="my-2">{language === 'ar' ? 'عداد محلي، وليس الرصيد الفعلي أو حدود حساب مزوّد الذكاء الاصطناعي.' : 'A local counter, not your AI provider’s actual balance or account limits.'}</p>
+          <QuotaTracker quota={quota} t={t} language={language} />
+        </details>
         {/* Financial Metrics Cards */}
         {invoices.length > 0 && <SummaryCards invoices={invoices} t={t} language={language} />}
 
@@ -418,7 +486,7 @@ export default function App() {
           onUpdateInvoice={handleUpdateInvoice}
           onDeleteInvoice={handleDeleteInvoice}
           onAddManualInvoice={handleOpenAddManual}
-          onPreviewInvoice={(inv) => setPreviewInvoice(inv)}
+          onPreviewInvoice={(inv) => { setEditingInvoice(inv); setIsModalOpen(true); }}
           t={t}
           language={language}
         />
@@ -474,18 +542,18 @@ export default function App() {
       />
 
       {/* Footer */}
-      <footer className="border-t border-slate-800/80 bg-slate-950/95 py-5 text-xs text-slate-500">
+      <footer className="border-t border-line bg-surface py-5 text-xs text-muted">
         <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-3">
-          <div className="flex items-center gap-1.5 text-slate-400">
-            <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
+          <div className="flex items-center gap-1.5 text-muted">
+            <Sparkles className="w-3.5 h-3.5 text-emerald-700" />
             <span>{t.footerText}</span>
           </div>
 
           {/* Designer Signature */}
-          <div className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-slate-900/90 border border-slate-800 shadow-sm">
-            <span className="font-bold text-emerald-400">تصميم أ/ شادي ناصف</span>
-            <span className="text-slate-600">•</span>
-            <span className="font-medium text-slate-300 font-mono">Designed by Shady Nassef</span>
+          <div className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-surface border border-line shadow-sm">
+            <span className="font-bold text-emerald-700">تصميم أ/ شادي ناصف</span>
+            <span className="text-muted">•</span>
+            <span className="font-medium text-ink font-mono">Designed by Shady Nassef</span>
           </div>
         </div>
       </footer>

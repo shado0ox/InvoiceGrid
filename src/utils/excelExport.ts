@@ -1,7 +1,8 @@
-import * as XLSX from 'xlsx';
+import type * as XLSXTypes from 'xlsx';
 import { InvoiceRow } from '../types';
+import { currencyGroups, notifyExport } from './session';
 
-export function exportInvoicesToExcel(invoices: InvoiceRow[], filename = 'InvoiceGrid_فواتير_المشتريات.xlsx') {
+function createInvoiceWorksheet(invoices: InvoiceRow[], XLSX: typeof XLSXTypes) {
   // Exact headers matching the screenshot provided:
   // Row 1: Arabic Headers
   const arabicHeaders = [
@@ -102,13 +103,31 @@ export function exportInvoicesToExcel(invoices: InvoiceRow[], filename = 'Invoic
     worksheet['!views'] = [{ RTL: true }];
   }
 
+  return worksheet;
+}
+export async function createInvoiceWorkbook(invoices: InvoiceRow[]) {
+  const XLSX = await import('xlsx');
   const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(workbook, worksheet, 'فواتير المشتريات');
-
-  // Trigger download
+  const groups = currencyGroups(invoices);
+  if (!groups.size) groups.set('UNKNOWN', []);
+  let index = 0;
+  for (const [currency, rows] of groups) {
+    const label = groups.size === 1 ? 'فواتير المشتريات' : `${++index}-${currency.replace(/[\\/?*:\[\]]/g, '').slice(0, 20) || 'UNKNOWN'}`;
+    XLSX.utils.book_append_sheet(workbook, createInvoiceWorksheet(rows, XLSX), label);
+  }
+  return workbook;
+}
+export async function exportInvoicesToExcel(invoices: InvoiceRow[], filename = 'InvoiceGrid_فواتير_المشتريات.xlsx') {
+  const XLSX = await import('xlsx');
+  const workbook = await createInvoiceWorkbook(invoices);
   XLSX.writeFile(workbook, filename.endsWith('.xlsx') ? filename : `${filename}.xlsx`);
+  notifyExport(invoices);
 }
 
+export function safeCSVText(value: string): string {
+  const text = /^[\s]*[=+@-]/.test(value) ? `'${value}` : value;
+  return `"${text.replace(/"/g, '\"\"')}"`;
+}
 export function exportInvoicesToCSV(invoices: InvoiceRow[], filename = 'InvoiceGrid_فواتير_المشتريات.csv') {
   const headers = [
     'مسلسل (no)',
@@ -124,11 +143,11 @@ export function exportInvoicesToCSV(invoices: InvoiceRow[], filename = 'InvoiceG
 
   const rows = invoices.map((inv, idx) => [
     inv.no ?? idx + 1,
-    `"${(inv.date || '').replace(/"/g, '""')}"`,
-    `"${(inv.sellerName || '').replace(/"/g, '""')}"`,
-    `"${(inv.taxNumber || '').replace(/"/g, '""')}"`,
-    `"${(inv.invoiceNumber || '').replace(/"/g, '""')}"`,
-    `"${(inv.details || '').replace(/"/g, '""')}"`,
+    safeCSVText(inv.date || ''),
+    safeCSVText(inv.sellerName || ''),
+    safeCSVText(inv.taxNumber || ''),
+    safeCSVText(inv.invoiceNumber || ''),
+    safeCSVText(inv.details || ''),
     (Number(inv.amountBeforeTax) || 0).toFixed(2),
     (Number(inv.tax) || 0).toFixed(2),
     (Number(inv.lastAmount) || 0).toFixed(2),
@@ -149,9 +168,10 @@ export function exportInvoicesToCSV(invoices: InvoiceRow[], filename = 'InvoiceG
   link.click();
   document.body.removeChild(link);
   URL.revokeObjectURL(url);
+  notifyExport(invoices);
 }
 
-export function copyInvoicesToClipboard(invoices: InvoiceRow[]): boolean {
+export async function copyInvoicesToClipboard(invoices: InvoiceRow[]): Promise<boolean> {
   const headers = [
     'مسلسل\tالتاريخ\tاسم المورد\tالرقم الضريبي\tرقم الفاتوره\tالبيانات\tالمبلغ قبل الضريبه\tالضريبه\tالمبلغ بعد الضريبه',
     'no\tdate\tThe seller\'s name\ttax number\tinvoice number\tdetails\tamount befor tax\ttax\tlast amount'
@@ -159,11 +179,10 @@ export function copyInvoicesToClipboard(invoices: InvoiceRow[]): boolean {
 
   const rows = invoices.map((inv, idx) => [
     inv.no ?? idx + 1,
-    inv.date || '',
-    inv.sellerName || '',
-    inv.taxNumber || '',
-    inv.invoiceNumber || '',
-    inv.details || '',
+    ...[inv.date, inv.sellerName, inv.taxNumber, inv.invoiceNumber, inv.details].map(value => {
+      const text = (value || '').replace(/[\t\r\n]/g, ' ');
+      return /^[\s]*[=+@-]/.test(text) ? `'${text}` : text;
+    }),
     (Number(inv.amountBeforeTax) || 0).toFixed(2),
     (Number(inv.tax) || 0).toFixed(2),
     (Number(inv.lastAmount) || 0).toFixed(2),
@@ -171,7 +190,7 @@ export function copyInvoicesToClipboard(invoices: InvoiceRow[]): boolean {
 
   const textToCopy = [...headers, ...rows].join('\n');
   try {
-    navigator.clipboard.writeText(textToCopy);
+    await navigator.clipboard.writeText(textToCopy);
     return true;
   } catch (err) {
     console.error('Failed to copy to clipboard', err);
